@@ -28,10 +28,20 @@ namespace SevenZip
 		/// <param name="inSize">
 		/// input size. -1 if unknown.
 		/// </param>
-		/// <param name="outSize">
-		/// output size. -1 if unknown.
+		void SetProgress(ulong inSize);
+
+		/// <summary>
+		/// Called before setting progress.
+		/// </summary>
+		/// <param name="maxSize">
+		/// max size. -1 if unknown.
 		/// </param>
-		void SetProgress(Int64 inSize, Int64 outSize);
+		void SetMaxSize(ulong maxSize);
+
+		/// <summary>
+		/// Called at the end of process.
+		/// </summary>
+		void Clear();
 	};
 
 	public interface ICoder

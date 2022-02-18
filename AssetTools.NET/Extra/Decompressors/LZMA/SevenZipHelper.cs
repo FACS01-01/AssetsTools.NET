@@ -43,15 +43,15 @@ namespace SevenZip.Compression.LZMA
             eos
         };
 
-        public static byte[] Compress(byte[] inputBytes)
+        public static byte[] Compress(byte[] inputBytes, ICodeProgress progress = null)
         {
             MemoryStream inStream = new MemoryStream(inputBytes);
             MemoryStream outStream = new MemoryStream();
-            Compress(inStream, outStream);
+            Compress(inStream, outStream, progress);
             return outStream.ToArray();
         }
 
-        public static void Compress(Stream inStream, Stream outStream)
+        public static void Compress(Stream inStream, Stream outStream, ICodeProgress progress = null)
         {
             Encoder encoder = new Encoder();
             encoder.SetCoderProperties(propIDs, properties);
@@ -60,10 +60,10 @@ namespace SevenZip.Compression.LZMA
             //long fileSize = inStream.Length;
             //for (int i = 0; i < 8; i++)
             //    outStream.WriteByte((Byte)(fileSize >> (8 * i)));
-            encoder.Code(inStream, outStream, -1, -1, null);
+            encoder.Code(inStream, outStream, -1, -1, progress);
         }
 
-        public static byte[] Decompress(byte[] inputBytes)
+        public static byte[] Decompress(byte[] inputBytes, ICodeProgress progress = null)
         {
             MemoryStream newInStream = new MemoryStream(inputBytes);
 
@@ -86,7 +86,7 @@ namespace SevenZip.Compression.LZMA
             decoder.SetDecoderProperties(properties2);
 
             long compressedSize = newInStream.Length - newInStream.Position;
-            decoder.Code(newInStream, newOutStream, compressedSize, outSize, null);
+            decoder.Code(newInStream, newOutStream, compressedSize, outSize, progress);
 
             byte[] b = newOutStream.ToArray();
 
@@ -94,7 +94,7 @@ namespace SevenZip.Compression.LZMA
         }
 
 
-        public static MemoryStream StreamDecompress(MemoryStream newInStream)
+        public static MemoryStream StreamDecompress(MemoryStream newInStream, ICodeProgress progress = null)
         {
             Decoder decoder = new Decoder();
 
@@ -115,13 +115,13 @@ namespace SevenZip.Compression.LZMA
             decoder.SetDecoderProperties(properties2);
 
             long compressedSize = newInStream.Length - newInStream.Position;
-            decoder.Code(newInStream, newOutStream, compressedSize, outSize, null);
+            decoder.Code(newInStream, newOutStream, compressedSize, outSize, progress);
 
             newOutStream.Position = 0;
             return newOutStream;
         }
 
-        public static MemoryStream StreamDecompress(MemoryStream newInStream, long outSize)
+        public static MemoryStream StreamDecompress(MemoryStream newInStream, long outSize, ICodeProgress progress = null)
         {
             Decoder decoder = new Decoder();
 
@@ -134,13 +134,13 @@ namespace SevenZip.Compression.LZMA
             decoder.SetDecoderProperties(properties2);
 
             long compressedSize = newInStream.Length - newInStream.Position;
-            decoder.Code(newInStream, newOutStream, compressedSize, outSize, null);
+            decoder.Code(newInStream, newOutStream, compressedSize, outSize, progress);
 
             newOutStream.Position = 0;
             return newOutStream;
         }
 
-        public static void StreamDecompress(Stream compressedStream, Stream decompressedStream, long compressedSize, long decompressedSize)
+        public static void StreamDecompress(Stream compressedStream, Stream decompressedStream, long compressedSize, long decompressedSize, ICodeProgress progress = null)
         {
             long basePosition = compressedStream.Position;
             Decoder decoder = new Decoder();
@@ -150,7 +150,7 @@ namespace SevenZip.Compression.LZMA
                 throw new Exception("input .lzma is too short");
             decoder.SetDecoderProperties(properties);
 
-            decoder.Code(compressedStream, decompressedStream, compressedSize - 5, decompressedSize, null);
+            decoder.Code(compressedStream, decompressedStream, compressedSize - 5, decompressedSize, progress);
             compressedStream.Position = basePosition + compressedSize;
         }
     }
