@@ -1271,12 +1271,14 @@ namespace SevenZip.Compression.LZMA
 
 
 		public void Code(System.IO.Stream inStream, System.IO.Stream outStream,
-			Int64 inSize, Int64 outSize, ICodeProgress progress)
+			Int64 inSize, Int64 outSize, ICodeProgress progress = null)
 		{
 			_needReleaseMFStream = false;
+			bool hasProgress = progress != null;
 			try
 			{
 				SetStreams(inStream, outStream, inSize, outSize);
+				if (hasProgress) progress.SetMaxSize((ulong)inStream.Length);
 				while (true)
 				{
 					Int64 processedInSize;
@@ -1285,15 +1287,16 @@ namespace SevenZip.Compression.LZMA
 					CodeOneBlock(out processedInSize, out processedOutSize, out finished);
 					if (finished)
 						return;
-					if (progress != null)
+					if (hasProgress)
 					{
-						progress.SetProgress(processedInSize, processedOutSize);
+						progress.SetProgress((ulong)processedInSize);
 					}
 				}
 			}
 			finally
 			{
 				ReleaseStreams();
+				if (hasProgress) progress.Clear();
 			}
 		}
 

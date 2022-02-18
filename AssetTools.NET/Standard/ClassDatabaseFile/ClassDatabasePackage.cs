@@ -1,6 +1,7 @@
 ﻿using AssetsTools.NET.Extra;
 using AssetsTools.NET.Extra.Decompressors.LZ4;
 using LZ4ps;
+using SevenZip;
 using SevenZip.Compression.LZMA;
 using System;
 using System.Collections.Generic;
@@ -18,7 +19,7 @@ namespace AssetsTools.NET
         public List<ClassDatabaseFile> files;
         public byte[] stringTable;
 
-        public bool Read(AssetsFileReader reader)
+        public bool Read(AssetsFileReader reader, ICodeProgress progress = null)
         {
             header = new ClassDatabasePackageHeader();
             header.Read(reader);
@@ -37,7 +38,7 @@ namespace AssetsTools.NET
                     using (AssetsFileReader r = new AssetsFileReader(ms))
                     {
                         ClassDatabaseFile file = new ClassDatabaseFile();
-                        file.Read(r);
+                        file.Read(r, progress);
                         files.Add(file);
                     }
                 }
@@ -66,7 +67,7 @@ namespace AssetsTools.NET
                         byte[] dbg = newReader.ReadBytes(compressedSize);
                         using (MemoryStream tempMs = new MemoryStream(dbg))
                         {
-                            ms = SevenZipHelper.StreamDecompress(tempMs, uncompressedSize);
+                            ms = SevenZipHelper.StreamDecompress(tempMs, uncompressedSize, progress);
                         }
                     }
                     else
@@ -86,7 +87,7 @@ namespace AssetsTools.NET
                     using (AssetsFileReader r = new AssetsFileReader(ms))
                     {
                         ClassDatabaseFile file = new ClassDatabaseFile();
-                        file.Read(r);
+                        file.Read(r, progress);
                         files.Add(file);
                     }
                 }
@@ -114,7 +115,7 @@ namespace AssetsTools.NET
                 {
                     using (MemoryStream tempMs = new MemoryStream(newReader.ReadBytes(compressedSize)))
                     {
-                        ms = SevenZipHelper.StreamDecompress(tempMs, uncompressedSize);
+                        ms = SevenZipHelper.StreamDecompress(tempMs, uncompressedSize, progress);
                     }
                 }
                 else
@@ -136,7 +137,7 @@ namespace AssetsTools.NET
             return valid;
         }
 
-        public void Write(AssetsFileWriter writer, int optimizeStringTable = 1, int compress = 1)
+        public void Write(AssetsFileWriter writer, int optimizeStringTable = 1, int compress = 1, ICodeProgress progress = null)
         {
             long filePos = writer.BaseStream.Position;
 
@@ -218,7 +219,7 @@ namespace AssetsTools.NET
                     }
                     else if ((compress & 0x1f) == 2) //lzma
                     {
-                        byte[] compressedBlock = SevenZipHelper.Compress(cldbMs.ToArray());
+                        byte[] compressedBlock = SevenZipHelper.Compress(cldbMs.ToArray(), progress);
                         writer.Write(compressedBlock);
                     }
                     else
@@ -246,7 +247,7 @@ namespace AssetsTools.NET
                 }
                 else if ((compress & 0x1f) == 2) //lzma
                 {
-                    stringTableBytes = SevenZipHelper.Compress(stringTableBytes);
+                    stringTableBytes = SevenZipHelper.Compress(stringTableBytes, progress);
                 }
                 else
                 {
@@ -296,10 +297,10 @@ namespace AssetsTools.NET
             return false;
         }
 
-        public bool ImportFile(AssetsFileReader reader)
+        public bool ImportFile(AssetsFileReader reader, ICodeProgress progress = null)
         {
             ClassDatabaseFile cldb = new ClassDatabaseFile();
-            bool valid = cldb.Read(reader);
+            bool valid = cldb.Read(reader, progress);
             if (valid)
             {
                 files.Add(cldb);

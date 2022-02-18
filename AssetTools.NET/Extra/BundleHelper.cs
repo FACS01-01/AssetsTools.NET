@@ -5,6 +5,7 @@
 //   You've been warned!    
 
 using AssetsTools.NET.Extra.Decompressors.LZ4;
+using SevenZip;
 using SevenZip.Compression.LZMA;
 using System;
 using System.Collections.Generic;
@@ -77,10 +78,10 @@ namespace AssetsTools.NET.Extra
             return files;
         }
 
-        public static AssetBundleFile UnpackBundle(AssetBundleFile file, bool freeOriginalStream = true)
+        public static AssetBundleFile UnpackBundle(AssetBundleFile file, bool freeOriginalStream = true, ICodeProgress progress = null)
         {
             MemoryStream ms = new MemoryStream();
-            file.Unpack(file.reader, new AssetsFileWriter(ms));
+            file.Unpack(file.reader, new AssetsFileWriter(ms), progress);
             ms.Position = 0;
 
             AssetBundleFile newFile = new AssetBundleFile();
@@ -93,9 +94,9 @@ namespace AssetsTools.NET.Extra
             return newFile;
         }
 
-        public static AssetBundleFile UnpackBundleToStream(AssetBundleFile file, Stream stream, bool freeOriginalStream = true)
+        public static AssetBundleFile UnpackBundleToStream(AssetBundleFile file, Stream stream, bool freeOriginalStream = true, ICodeProgress progress = null)
         {
-            file.Unpack(file.reader, new AssetsFileWriter(stream));
+            file.Unpack(file.reader, new AssetsFileWriter(stream), progress);
             stream.Position = 0;
 
             AssetBundleFile newFile = new AssetBundleFile();
@@ -128,7 +129,7 @@ namespace AssetsTools.NET.Extra
             return null;
         }
 
-        public static void UnpackInfoOnly(this AssetBundleFile bundle)
+        public static void UnpackInfoOnly(this AssetBundleFile bundle, ICodeProgress progress = null)
         {
             AssetsFileReader reader = bundle.reader;
 
@@ -144,7 +145,7 @@ namespace AssetsTools.NET.Extra
                     case 1:
                         using (MemoryStream mstream = new MemoryStream(reader.ReadBytes(compressedSize)))
                         {
-                            blocksInfoStream = SevenZipHelper.StreamDecompress(mstream);
+                            blocksInfoStream = SevenZipHelper.StreamDecompress(mstream, progress);
                         }
                         break;
                     case 2:

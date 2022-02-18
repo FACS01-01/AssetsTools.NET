@@ -1,6 +1,7 @@
 ﻿using AssetsTools.NET.Extra;
 using AssetsTools.NET.Extra.Decompressors.LZ4;
 using LZ4ps;
+using SevenZip;
 using SevenZip.Compression.LZMA;
 using System;
 using System.Collections.Generic;
@@ -259,7 +260,7 @@ namespace AssetsTools.NET
             return true;
         }
 
-        public bool Unpack(AssetsFileReader reader, AssetsFileWriter writer)
+        public bool Unpack(AssetsFileReader reader, AssetsFileWriter writer, ICodeProgress progress = null)
         {
             reader.Position = 0;
             if (Read(reader, true))
@@ -273,7 +274,7 @@ namespace AssetsTools.NET
                     case 1:
                         using (MemoryStream mstream = new MemoryStream(reader.ReadBytes(compressedSize)))
                         {
-                            blocksInfoStream = SevenZipHelper.StreamDecompress(mstream);
+                            blocksInfoStream = SevenZipHelper.StreamDecompress(mstream, progress);
                         }
                         break;
                     case 2:
@@ -359,7 +360,7 @@ namespace AssetsTools.NET
                             reader.BaseStream.CopyToCompat(writer.BaseStream, info.compressedSize);
                             break;
                         case 1:
-                            SevenZipHelper.StreamDecompress(reader.BaseStream, writer.BaseStream, info.compressedSize, info.decompressedSize);
+                            SevenZipHelper.StreamDecompress(reader.BaseStream, writer.BaseStream, info.compressedSize, info.decompressedSize, progress);
                             break;
                         case 2:
                         case 3:
@@ -380,7 +381,7 @@ namespace AssetsTools.NET
             }
             return false;
         }
-        public bool Pack(AssetsFileReader reader, AssetsFileWriter writer, AssetBundleCompressionType compType, bool blockDirAtEnd = true)
+        public bool Pack(AssetsFileReader reader, AssetsFileWriter writer, AssetBundleCompressionType compType, ICodeProgress progress = null, bool blockDirAtEnd = true)
         {
             reader.Position = 0;
             writer.Position = 0;
@@ -437,7 +438,7 @@ namespace AssetsTools.NET
                             writeStream = GetTempFileStream();
 
                         long writeStreamStart = writeStream.Position;
-                        SevenZipHelper.Compress(bundleDataStream, writeStream);
+                        SevenZipHelper.Compress(bundleDataStream, writeStream, progress);
                         uint writeStreamLength = (uint)(writeStream.Position - writeStreamStart);
 
                         AssetBundleBlockInfo06 blockInfo = new AssetBundleBlockInfo06()

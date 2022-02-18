@@ -228,10 +228,11 @@ namespace SevenZip.Compression.LZMA
 		}
 
 		public void Code(System.IO.Stream inStream, System.IO.Stream outStream,
-			Int64 inSize, Int64 outSize, ICodeProgress progress)
+			Int64 inSize, Int64 outSize, ICodeProgress progress = null)
 		{
 			Init(inStream, outStream);
-
+			bool hasProgress = progress != null;
+			if (hasProgress) progress.SetMaxSize((ulong)inStream.Length);
 			Base.State state = new Base.State();
 			state.Init();
 			uint rep0 = 0, rep1 = 0, rep2 = 0, rep3 = 0;
@@ -278,6 +279,10 @@ namespace SevenZip.Compression.LZMA
 									state.UpdateShortRep();
 									m_OutWindow.PutByte(m_OutWindow.GetByte(rep0));
 									nowPos64++;
+									if (hasProgress)
+									{
+										progress.SetProgress(nowPos64);
+									}
 									continue;
 								}
 							}
@@ -334,16 +339,22 @@ namespace SevenZip.Compression.LZMA
 						{
 							if (rep0 == 0xFFFFFFFF)
 								break;
+							if (hasProgress) progress.Clear();
 							throw new DataErrorException();
 						}
 						m_OutWindow.CopyBlock(rep0, len);
 						nowPos64 += len;
+					}
+					if (hasProgress)
+					{
+						progress.SetProgress(nowPos64);
 					}
 				}
 			}
 			m_OutWindow.Flush();
 			m_OutWindow.ReleaseStream();
 			m_RangeDecoder.ReleaseStream();
+			if (hasProgress) progress.Clear();
 		}
 
 		public void SetDecoderProperties(byte[] properties)

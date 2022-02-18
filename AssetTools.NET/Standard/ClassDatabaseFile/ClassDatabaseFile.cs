@@ -1,4 +1,5 @@
 ﻿using AssetsTools.NET.Extra.Decompressors.LZ4;
+using SevenZip;
 using SevenZip.Compression.LZMA;
 using System;
 using System.Collections.Generic;
@@ -16,7 +17,7 @@ namespace AssetsTools.NET
 
         public byte[] stringTable;
 
-        public bool Read(AssetsFileReader reader)
+        public bool Read(AssetsFileReader reader, ICodeProgress progress = null)
         {
             header = new ClassDatabaseFileHeader();
             header.Read(reader);
@@ -48,7 +49,7 @@ namespace AssetsTools.NET
                 {
                     using (MemoryStream tempMs = new MemoryStream(reader.ReadBytes((int)header.compressedSize)))
                     {
-                        ms = SevenZipHelper.StreamDecompress(tempMs);
+                        ms = SevenZipHelper.StreamDecompress(tempMs, progress);
                     }
                 }
                 else
