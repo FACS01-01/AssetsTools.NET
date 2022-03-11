@@ -381,7 +381,7 @@ namespace AssetsTools.NET
             }
             return false;
         }
-        public bool Pack(AssetsFileReader reader, AssetsFileWriter writer, AssetBundleCompressionType compType, ICodeProgress progress = null, bool blockDirAtEnd = true)
+        public bool Pack(AssetsFileReader reader, AssetsFileWriter writer, AssetBundleCompressionType compType, ICodeProgress progress = null, bool blockDirAtEnd = false)
         {
             reader.Position = 0;
             writer.Position = 0;

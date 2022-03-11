@@ -232,7 +232,7 @@ namespace SevenZip.Compression.LZMA
 		{
 			Init(inStream, outStream);
 			bool hasProgress = progress != null;
-			if (hasProgress) progress.SetMaxSize((ulong)inStream.Length);
+			if (hasProgress) progress.SetMaxSize(Math.Max((ulong)outSize, (ulong)outStream.Length));
 			Base.State state = new Base.State();
 			state.Init();
 			uint rep0 = 0, rep1 = 0, rep2 = 0, rep3 = 0;
