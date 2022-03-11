@@ -147,7 +147,10 @@ namespace SevenZip.Compression.LZMA
 
             byte[] properties = new byte[5];
             if (compressedStream.Read(properties, 0, 5) != 5)
+            {
                 throw new Exception("input .lzma is too short");
+            }
+
             decoder.SetDecoderProperties(properties);
 
             decoder.Code(compressedStream, decompressedStream, compressedSize - 5, decompressedSize, progress);
