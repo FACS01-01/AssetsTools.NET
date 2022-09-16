@@ -351,13 +351,18 @@ namespace AssetsTools.NET
                 newBundleInf6.Write(writer);
 
                 reader.Position = bundleHeader6.GetFileDataOffset();
+
+                ulong maxsize = 0;
+                foreach (var blockinfo in bundleInf6.blockInf) maxsize += blockinfo.decompressedSize;
+                if (progress != null) progress.SetMaxSize(maxsize);
+
                 for (int i = 0; i < newBundleInf6.blockCount; i++)
                 {
                     AssetBundleBlockInfo06 info = bundleInf6.blockInf[i];
                     switch (info.GetCompressionType())
                     {
                         case 0:
-                            reader.BaseStream.CopyToCompat(writer.BaseStream, info.compressedSize);
+                            reader.BaseStream.CopyToCompat(writer.BaseStream, info.compressedSize, progress);
                             break;
                         case 1:
                             SevenZipHelper.StreamDecompress(reader.BaseStream, writer.BaseStream, info.compressedSize, info.decompressedSize, progress);
@@ -371,12 +376,15 @@ namespace AssetsTools.NET
 
                                 using (Lz4DecoderStream decoder = new Lz4DecoderStream(tempMs))
                                 {
-                                    decoder.CopyToCompat(writer.BaseStream, info.decompressedSize);
+                                    decoder.CopyToCompat(writer.BaseStream, info.decompressedSize, progress);
                                 }
                             }
                             break;
                     }
                 }
+
+                if (progress != null) progress.Clear();
+
                 return true;
             }
             return false;
