@@ -22,21 +22,29 @@ namespace SevenZip
 
 	public interface ICodeProgress
 	{
-		/// <summary>
-		/// Callback progress.
-		/// </summary>
-		/// <param name="inSize">
-		/// input size. -1 if unknown.
-		/// </param>
-		void SetProgress(ulong inSize);
+        /// <summary>
+        /// Called before setting or adding progress. Should lock after first use.
+        /// </summary>
+        /// <param name="maxSize">
+        /// max size.
+        /// </param>
+        void SetMaxSize(ulong maxSize);
 
-		/// <summary>
-		/// Called before setting progress.
-		/// </summary>
-		/// <param name="maxSize">
-		/// max size. -1 if unknown.
-		/// </param>
-		void SetMaxSize(ulong maxSize);
+        /// <summary>
+        /// Sets and displays progress.
+        /// </summary>
+        /// <param name="inSize">
+        /// input size.
+        /// </param>
+        void SetProgress(ulong inSize);
+
+        /// <summary>
+        /// Adds to progress and displays.
+        /// </summary>
+        /// <param name="delta">
+        /// input size.
+        /// </param>
+        void AddProgress(ulong delta);
 
 		/// <summary>
 		/// Called at the end of process.
