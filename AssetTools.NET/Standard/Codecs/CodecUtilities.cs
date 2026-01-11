@@ -7,7 +7,7 @@ using System.IO;
 
 namespace AssetsTools.NET.Standard.Codecs
 {
-    public class CodecUtilities
+    public static class CodecUtilities
     {
         public static Stream DecompressToNew(Stream compressedData, uint compressedSize, uint decompressedSize,
         CompressionType compressionType, BackingStreamType streamType, bool copyStreamIfUncompressed = true)
