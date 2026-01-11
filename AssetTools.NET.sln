@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.0.32112.339
+# Visual Studio Version 18
+VisualStudioVersion = 18.1.11312.151 d18.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AssetsTools.NET", "AssetTools.NET\AssetsTools.NET.csproj", "{E09D5AC2-1A2E-4EC1-94AD-3F5E22F17658}"
 EndProject
@@ -18,6 +18,11 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AssetsTools.NET.MonoCecil", "AssetsTools.NET.MonoCecil\AssetsTools.NET.MonoCecil.csproj", "{811C1198-2652-49F1-99A6-AF83A4C2AFE0}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TobyCopy", "TobyCopy\TobyCopy.csproj", "{7499625C-4815-4B05-B11D-C7D2F2761A37}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{DA81C4CF-AFD5-4348-92E3-DF80EFEEDB02}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

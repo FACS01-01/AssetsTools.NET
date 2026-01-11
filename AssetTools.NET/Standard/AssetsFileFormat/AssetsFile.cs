@@ -1,4 +1,5 @@
 ﻿using AssetsTools.NET.Extra;
+using AssetsTools.NET.Standard.IO.Extensions;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -158,7 +159,7 @@ namespace AssetsTools.NET
                 else
                 {
                     Reader.Position = assetInfo.GetAbsoluteByteOffset(this);
-                    Reader.BaseStream.CopyToCompat(writer.BaseStream, assetInfo.ByteSize);
+                    Reader.BaseStream.CopyToExactly(writer.BaseStream, assetInfo.ByteSize);
                 }
 
                 assetInfo.ByteOffset = newByteStart;

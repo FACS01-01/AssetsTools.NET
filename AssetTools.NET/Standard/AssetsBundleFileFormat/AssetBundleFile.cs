@@ -1,7 +1,5 @@
-﻿using AssetsTools.NET.Extra;
-using AssetsTools.NET.Extra.Decompressors.LZ4;
-using LZ4ps;
-using SevenZip.Compression.LZMA;
+﻿using AssetsTools.NET.Standard.Codecs;
+using AssetsTools.NET.Standard.IO.Extensions;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -195,7 +193,7 @@ namespace AssetsTools.NET
                 else
                 {
                     DataReader.Position = dirInfo.Offset;
-                    DataReader.BaseStream.CopyToCompat(writer.BaseStream, dirInfo.DecompressedSize);
+                    DataReader.BaseStream.CopyToExactly(writer.BaseStream, dirInfo.DecompressedSize);
                 }
 
                 dirInfo.Offset = newOffset;
@@ -338,34 +336,7 @@ namespace AssetsTools.NET
                 for (int i = 0; i < newBundleInf.BlockInfos.Length; i++)
                 {
                     AssetBundleBlockInfo info = blockInfos[i];
-                    switch (info.GetCompressionType())
-                    {
-                        case 0:
-                        {
-                            reader.BaseStream.CopyToCompat(writer.BaseStream, info.CompressedSize);
-                            break;
-                        }
-                        case 1:
-                        {
-                            SevenZipHelper.StreamDecompress(reader.BaseStream, writer.BaseStream, info.CompressedSize, info.DecompressedSize);
-                            break;
-                        }
-                        case 2:
-                        case 3:
-                        {
-                            using (MemoryStream tempMs = new MemoryStream())
-                            {
-                                reader.BaseStream.CopyToCompat(tempMs, info.CompressedSize);
-                                tempMs.Position = 0;
-
-                                using (Lz4DecoderStream decoder = new Lz4DecoderStream(tempMs))
-                                {
-                                    decoder.CopyToCompat(writer.BaseStream, info.DecompressedSize);
-                                }
-                            }
-                            break;
-                        }
-                    }
+                    CodecUtilities.DecompressToStream(reader.BaseStream, info.CompressedSize, info.DecompressedSize, info.GetCompressionType(), writer.BaseStream);
                 }
             }
             else
@@ -373,7 +344,7 @@ namespace AssetsTools.NET
                 for (int i = 0; i < newBundleInf.BlockInfos.Length; i++)
                 {
                     AssetBundleBlockInfo info = blockInfos[i];
-                    reader.BaseStream.CopyToCompat(writer.BaseStream, info.DecompressedSize);
+                    reader.BaseStream.CopyToExactly(writer.BaseStream, info.DecompressedSize);
                 }
             }
         }
@@ -386,7 +357,7 @@ namespace AssetsTools.NET
         /// <param name="compType">The compression type to use. LZ4 compresses worse but faster, LZMA compresses better but slower.</param>
         /// <param name="blockDirAtEnd">Put block and directory list at end? This skips creating temporary files, but is not officially used.</param>
         /// <param name="progress">Optional callback for compression progress.</param>
-        public void Pack(AssetsFileWriter writer, AssetBundleCompressionType compType,
+        public void Pack(AssetsFileWriter writer, CompressionType compType,
             bool blockDirAtEnd = true, IAssetBundleCompressProgress progress = null)
         {
             if (Header == null)
@@ -446,20 +417,18 @@ namespace AssetsTools.NET
 
             switch (compType)
             {
-                case AssetBundleCompressionType.LZMA:
+                case CompressionType.LZMA:
                 {
                     // write to one large lzma block
                     Stream writeStream;
                     if (blockDirAtEnd)
                         writeStream = writer.BaseStream;
                     else
-                        writeStream = GetTempFileStream();
+                        writeStream = StreamExtensions.NewTempFileStream();
 
                     var lzmaProgress = new AssetBundleLZMAProgress(progress, bundleDataStream.Length);
 
-                    long writeStreamStart = writeStream.Position;
-                    SevenZipHelper.Compress(bundleDataStream, writeStream, lzmaProgress);
-                    uint writeStreamLength = (uint)(writeStream.Position - writeStreamStart);
+                    uint writeStreamLength = (uint)CodecUtilities.CompressLZMA(bundleDataStream, writeStream, lzmaProgress);
 
                     AssetBundleBlockInfo blockInfo = new AssetBundleBlockInfo()
                     {
@@ -481,8 +450,8 @@ namespace AssetsTools.NET
 
                     break;
                 }
-                case AssetBundleCompressionType.LZ4:
-                case AssetBundleCompressionType.LZ4Fast:
+                case CompressionType.LZ4:
+                case CompressionType.LZ4HC:
                 {
                     // compress into 0x20000 blocks
                     BinaryReader bundleDataReader = new BinaryReader(bundleDataStream);
@@ -491,14 +460,12 @@ namespace AssetsTools.NET
                     if (blockDirAtEnd)
                         writeStream = writer.BaseStream;
                     else
-                        writeStream = GetTempFileStream();
+                        writeStream = StreamExtensions.NewTempFileStream();
 
                     byte[] uncompressedBlock = bundleDataReader.ReadBytes(0x20000);
                     while (uncompressedBlock.Length != 0)
                     {
-                        byte[] compressedBlock = compType == AssetBundleCompressionType.LZ4Fast
-                            ? LZ4Codec.Encode32(uncompressedBlock, 0, uncompressedBlock.Length)
-                            : LZ4Codec.Encode32HC(uncompressedBlock, 0, uncompressedBlock.Length);
+                        byte[] compressedBlock = CodecUtilities.CompressLZ4(uncompressedBlock, compType);
 
                         if (progress != null)
                         {
@@ -549,7 +516,7 @@ namespace AssetsTools.NET
 
                     break;
                 }
-                case AssetBundleCompressionType.None:
+                case CompressionType.None:
                 {
                     AssetBundleBlockInfo blockInfo = new AssetBundleBlockInfo()
                     {
@@ -563,7 +530,7 @@ namespace AssetsTools.NET
                     newBlocks.Add(blockInfo);
 
                     if (blockDirAtEnd)
-                        bundleDataStream.CopyToCompat(writer.BaseStream);
+                        bundleDataStream.CopyToExactly(writer.BaseStream);
                     else
                         newStreams.Add(bundleDataStream);
 
@@ -583,9 +550,7 @@ namespace AssetsTools.NET
             }
 
             // listing is usually lz4 even if the data blocks are lzma
-            byte[] bundleInfoBytesCom = compType == AssetBundleCompressionType.LZ4Fast
-                ? LZ4Codec.Encode32(bundleInfoBytes, 0, bundleInfoBytes.Length)
-                : LZ4Codec.Encode32HC(bundleInfoBytes, 0, bundleInfoBytes.Length);
+            byte[] bundleInfoBytesCom = CodecUtilities.CompressLZ4(bundleInfoBytes, compType);
 
             long totalFileSize = headerSize + bundleInfoBytesCom.Length + totalCompressedSize;
             newFsHeader.TotalFileSize = totalFileSize;
@@ -598,7 +563,7 @@ namespace AssetsTools.NET
                 foreach (Stream newStream in newStreams)
                 {
                     newStream.Position = 0;
-                    newStream.CopyToCompat(writer.BaseStream);
+                    newStream.CopyToExactly(writer.BaseStream);
                     newStream.Close();
                 }
             }
@@ -618,9 +583,6 @@ namespace AssetsTools.NET
             if (Header == null)
                 throw new Exception("Header must be loaded! (Did you forget to call bundle.Read?)");
 
-            MemoryStream blocksInfoStream;
-            AssetsFileReader memReader;
-
             Reader.Position = Header.GetBundleInfoOffset();
             if (Header.GetCompressionType() == 0)
             {
@@ -629,41 +591,12 @@ namespace AssetsTools.NET
             }
             else
             {
-                int compressedSize = (int)Header.FileStreamHeader.CompressedSize;
-                int decompressedSize = (int)Header.FileStreamHeader.DecompressedSize;
+                var compressedSize = Header.FileStreamHeader.CompressedSize;
+                var decompressedSize = Header.FileStreamHeader.DecompressedSize;
 
-                switch (Header.GetCompressionType())
-                {
-                    case 1:
-                    {
-                        using (MemoryStream mstream = new MemoryStream(Reader.ReadBytes(compressedSize)))
-                        {
-                            blocksInfoStream = new MemoryStream();
-                            SevenZipHelper.StreamDecompress(mstream, blocksInfoStream, compressedSize, decompressedSize);
-                        }
-                        break;
-                    }
-                    case 2:
-                    case 3:
-                    {
-                        byte[] uncompressedBytes = new byte[Header.FileStreamHeader.DecompressedSize];
-                        using (MemoryStream mstream = new MemoryStream(Reader.ReadBytes(compressedSize)))
-                        {
-                            var decoder = new Lz4DecoderStream(mstream);
-                            decoder.Read(uncompressedBytes, 0, (int)Header.FileStreamHeader.DecompressedSize);
-                            decoder.Dispose();
-                        }
-                        blocksInfoStream = new MemoryStream(uncompressedBytes);
-                        break;
-                    }
-                    default:
-                    {
-                        blocksInfoStream = null;
-                        break;
-                    }
-                }
+                var blocksInfoStream = CodecUtilities.DecompressToNew(Reader.BaseStream, compressedSize, decompressedSize, Header.GetCompressionType(), BackingStreamType.MemoryStream, false);
 
-                using (memReader = new AssetsFileReader(blocksInfoStream))
+                using (var memReader = new AssetsFileReader(blocksInfoStream))
                 {
                     memReader.Position = 0;
                     memReader.BigEndian = Reader.BigEndian;
@@ -676,21 +609,21 @@ namespace AssetsTools.NET
             // find mixed lz4 and lzma. if so, that's bad news.
             switch (GetCompressionType())
             {
-                case AssetBundleCompressionType.None:
+                case CompressionType.None:
                 {
                     SegmentStream dataStream = new SegmentStream(Reader.BaseStream, Header.GetFileDataOffset());
                     DataReader = new AssetsFileReader(dataStream);
                     DataIsCompressed = false;
                     break;
                 }
-                case AssetBundleCompressionType.LZMA:
+                case CompressionType.LZMA:
                 {
                     SegmentStream dataStream = new SegmentStream(Reader.BaseStream, Header.GetFileDataOffset());
                     DataReader = new AssetsFileReader(dataStream);
                     DataIsCompressed = true;
                     break;
                 }
-                case AssetBundleCompressionType.LZ4:
+                case CompressionType.LZ4:
                 {
                     LZ4BlockStream dataStream = new LZ4BlockStream(Reader.BaseStream, Header.GetFileDataOffset(), BlockAndDirInfo.BlockInfos);
                     DataReader = new AssetsFileReader(dataStream);
@@ -705,23 +638,23 @@ namespace AssetsTools.NET
         /// Returns the main compression type the bundle uses (the first uncompressed block type).
         /// </summary>
         /// <returns>The compression type</returns>
-        public AssetBundleCompressionType GetCompressionType()
+        public CompressionType GetCompressionType()
         {
             AssetBundleBlockInfo[] blockInfos = BlockAndDirInfo.BlockInfos;
             for (int i = 0; i < blockInfos.Length; i++)
             {
-                byte compType = blockInfos[i].GetCompressionType();
-                if (compType == 2 || compType == 3)
+                var compType = blockInfos[i].GetCompressionType();
+                if (compType == CompressionType.LZ4 || compType == CompressionType.LZ4HC)
                 {
-                    return AssetBundleCompressionType.LZ4;
+                    return CompressionType.LZ4;
                 }
-                else if (compType == 1)
+                else if (compType == CompressionType.LZMA)
                 {
-                    return AssetBundleCompressionType.LZMA;
+                    return CompressionType.LZMA;
                 }
             }
 
-            return AssetBundleCompressionType.None;
+            return CompressionType.None;
         }
 
         /// <summary>
@@ -813,20 +746,5 @@ namespace AssetsTools.NET
 
             return names;
         }
-
-        private FileStream GetTempFileStream()
-        {
-            string tempFilePath = Path.GetTempFileName();
-            FileStream tempFileStream = new FileStream(tempFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, 4096, FileOptions.DeleteOnClose);
-            return tempFileStream;
-        }
-    }
-
-    public enum AssetBundleCompressionType
-    {
-        None,
-        LZMA,
-        LZ4,
-        LZ4Fast
     }
 }

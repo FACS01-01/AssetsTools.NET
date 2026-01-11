@@ -1,4 +1,5 @@
-﻿using System;
+﻿using AssetsTools.NET.Standard.IO.Extensions;
+using System;
 using System.IO;
 
 namespace AssetsTools.NET.Extra
@@ -67,7 +68,7 @@ namespace AssetsTools.NET.Extra
 
             AssetsFile file = inst.file;
             bool hasTypeTree = file.Metadata.TypeTreeEnabled;
-            bool forceFromCldb = Net35Polyfill.HasFlag(readFlags, AssetReadFlags.ForceFromCldb);
+            bool forceFromCldb = readFlags.HasFlag(AssetReadFlags.ForceFromCldb);
 
             // if there's a type tree AND we aren't forcing from a class database
             // (with the condition that we actually have a class database) then
@@ -131,7 +132,7 @@ namespace AssetsTools.NET.Extra
                     return null;
                 }
 
-                bool preferEditor = Net35Polyfill.HasFlag(readFlags, AssetReadFlags.PreferEditor);
+                bool preferEditor = readFlags.HasFlag(AssetReadFlags.PreferEditor);
 
                 baseField = new AssetTypeTemplateField();
                 baseField.FromClassDatabase(ClassDatabase, cldbType, preferEditor);
@@ -154,7 +155,7 @@ namespace AssetsTools.NET.Extra
             // can get the monoscript (we could also use the script index
             // but this is safer) and then passing the script from there to
             // the temp generator. we then append those fields to the base.
-            bool skipMonoBehaviourFields = Net35Polyfill.HasFlag(readFlags, AssetReadFlags.SkipMonoBehaviourFields);
+            bool skipMonoBehaviourFields = readFlags.HasFlag(AssetReadFlags.SkipMonoBehaviourFields);
             if (typeId == (int)AssetClassID.MonoBehaviour && MonoTempGenerator != null && !skipMonoBehaviourFields && reader != null)
             {
                 AssetTypeValueField mbBaseField = baseField.MakeValue(reader, absByteStart);
@@ -339,7 +340,7 @@ namespace AssetsTools.NET.Extra
                 {
                     AssetsFileReader reader = inst.file.Reader;
                     reader.Position = info.GetAbsoluteByteOffset(inst.file);
-                    reader.BaseStream.CopyToCompat(assetDataStream, info.ByteSize);
+                    reader.BaseStream.CopyToExactly(assetDataStream, info.ByteSize);
                 }
                 assetDataStream.Position = 0;
                 valueField = tempField.MakeValue(new AssetsFileReader(assetDataStream), 0, refMan);

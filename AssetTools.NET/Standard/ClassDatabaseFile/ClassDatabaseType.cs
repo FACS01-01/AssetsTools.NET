@@ -1,7 +1,4 @@
-﻿using AssetsTools.NET.Extra;
-using System;
-using System.Collections.Generic;
-
+﻿
 namespace AssetsTools.NET
 {
     public class ClassDatabaseType
@@ -27,14 +24,14 @@ namespace AssetsTools.NET
             Flags = (ClassFileTypeFlags)reader.ReadByte();
 
             EditorRootNode = null;
-            if (Net35Polyfill.HasFlag(Flags, ClassFileTypeFlags.HasEditorRootNode))
+            if (Flags.HasFlag(ClassFileTypeFlags.HasEditorRootNode))
             {
                 EditorRootNode = new ClassDatabaseTypeNode();
                 EditorRootNode.Read(reader);
             }
 
             ReleaseRootNode = null;
-            if (Net35Polyfill.HasFlag(Flags, ClassFileTypeFlags.HasReleaseRootNode))
+            if (Flags.HasFlag(ClassFileTypeFlags.HasReleaseRootNode))
             {
                 ReleaseRootNode = new ClassDatabaseTypeNode();
                 ReleaseRootNode.Read(reader);
@@ -54,12 +51,12 @@ namespace AssetsTools.NET
 
             writer.Write((byte)Flags);
 
-            if (Net35Polyfill.HasFlag(Flags, ClassFileTypeFlags.HasEditorRootNode) && EditorRootNode != null)
+            if (Flags.HasFlag(ClassFileTypeFlags.HasEditorRootNode) && EditorRootNode != null)
             {
                 EditorRootNode.Write(writer);
             }
 
-            if (Net35Polyfill.HasFlag(Flags, ClassFileTypeFlags.HasReleaseRootNode) && ReleaseRootNode != null)
+            if (Flags.HasFlag(ClassFileTypeFlags.HasReleaseRootNode) && ReleaseRootNode != null)
             {
                 ReleaseRootNode.Write(writer);
             }

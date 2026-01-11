@@ -1,4 +1,6 @@
-﻿namespace AssetsTools.NET
+﻿using AssetsTools.NET.Standard.Codecs;
+
+namespace AssetsTools.NET
 {
     public class AssetBundleBlockInfo
     {
@@ -16,6 +18,6 @@
         /// 0x40: Streamed if unset (will be read in blocks) <br/>
         /// </summary>
         public ushort Flags { get; set; }
-        public byte GetCompressionType() { return (byte)(Flags & 0x3F); }
+        public CompressionType GetCompressionType() => (CompressionType)(Flags & 0x3F);
     }
 }

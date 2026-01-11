@@ -1,8 +1,4 @@
-﻿using AssetsTools.NET.Extra;
-using System;
-using System.Collections.Generic;
-using System.Text;
-
+﻿
 namespace AssetsTools.NET
 {
     public class ClassPackageType
@@ -29,11 +25,11 @@ namespace AssetsTools.NET
             Flags = (ClassFileTypeFlags)reader.ReadByte();
 
             EditorRootNode = ushort.MaxValue;
-            if (Net35Polyfill.HasFlag(Flags, ClassFileTypeFlags.HasEditorRootNode))
+            if (Flags.HasFlag(ClassFileTypeFlags.HasEditorRootNode))
                 EditorRootNode = reader.ReadUInt16();
 
             ReleaseRootNode = ushort.MaxValue;
-            if (Net35Polyfill.HasFlag(Flags, ClassFileTypeFlags.HasReleaseRootNode))
+            if (Flags.HasFlag(ClassFileTypeFlags.HasReleaseRootNode))
                 ReleaseRootNode = reader.ReadUInt16();
         }
 
@@ -47,10 +43,10 @@ namespace AssetsTools.NET
             writer.Write(BaseName);
             writer.Write((byte)Flags);
 
-            if (Net35Polyfill.HasFlag(Flags, ClassFileTypeFlags.HasEditorRootNode))
+            if (Flags.HasFlag(ClassFileTypeFlags.HasEditorRootNode))
                 writer.Write(EditorRootNode);
 
-            if (Net35Polyfill.HasFlag(Flags, ClassFileTypeFlags.HasReleaseRootNode))
+            if (Flags.HasFlag(ClassFileTypeFlags.HasReleaseRootNode))
                 writer.Write(ReleaseRootNode);
         }
     }

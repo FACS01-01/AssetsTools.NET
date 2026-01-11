@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using AssetsTools.NET.Standard.Codecs;
+using System.Collections.Generic;
 using System.IO;
 
 namespace AssetsTools.NET.Extra
@@ -12,7 +13,7 @@ namespace AssetsTools.NET.Extra
         /// Original compression type. If this bundle is decompressed, you might
         /// use this value to compress it back to its original compression type.
         /// </summary>
-        public AssetBundleCompressionType originalCompression;
+        public CompressionType originalCompression;
         /// <summary>
         /// List of loaded assets files for this bundle.
         /// </summary>

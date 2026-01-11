@@ -1,5 +1,5 @@
-﻿using AssetsTools.NET.Extra;
-using AssetsTools.NET.Extra.Decompressors.LZ4;
+﻿using AssetsTools.NET.Standard.IO.Extensions;
+using AssetsTools.NET.Standard.Codecs;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -131,22 +131,18 @@ namespace AssetsTools.NET
                     BaseStream.Position = BaseOffset + blockPoses[blockIndex];
 
                     MemoryStream compressedStream = new MemoryStream();
-                    BaseStream.CopyToCompat(compressedStream, blockInfos[blockIndex].CompressedSize, (int)blockSize);
+                    BaseStream.CopyToExactly(compressedStream, blockInfos[blockIndex].CompressedSize);
                     compressedStream.Position = 0;
 
-                    byte compressionType = blockInfos[blockIndex].GetCompressionType();
+                    var compressionType = blockInfos[blockIndex].GetCompressionType();
                     if (compressionType == 0)
                     {
                         blockStream = compressedStream;
                     }
-                    else if (compressionType == 2 || compressionType == 3)
+                    else if (compressionType == CompressionType.LZ4 || compressionType == CompressionType.LZ4HC)
                     {
-                        byte[] blockData = new byte[blockInfos[blockIndex].DecompressedSize];
-                        using (Lz4DecoderStream decoder = new Lz4DecoderStream(compressedStream))
-                        {
-                            decoder.Read(blockData, 0, blockData.Length);
-                        }
-                        blockStream = new MemoryStream(blockData);
+                        blockStream = (MemoryStream)CodecUtilities.DecompressLZ4ToNew(compressedStream,
+                            (int)blockInfos[blockIndex].CompressedSize, (int)blockInfos[blockIndex].DecompressedSize, BackingStreamType.MemoryStream);
                     }
                     else
                     {
@@ -222,7 +218,7 @@ namespace AssetsTools.NET
             // block instead. so we need to find the first compressed block.
             for (int i = 0; i < blockInfos.Length; i++)
             {
-                if (blockInfos[i].GetCompressionType() == 2 || blockInfos[i].GetCompressionType() == 3)
+                if (blockInfos[i].GetCompressionType() == CompressionType.LZ4 || blockInfos[i].GetCompressionType() == CompressionType.LZ4HC)
                 {
                     return blockInfos[i].DecompressedSize;
                 }

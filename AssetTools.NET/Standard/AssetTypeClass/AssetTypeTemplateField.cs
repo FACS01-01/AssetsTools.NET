@@ -1,8 +1,6 @@
-﻿using AssetsTools.NET.Extra;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.CompilerServices;
 
 namespace AssetsTools.NET
 {
@@ -57,7 +55,7 @@ namespace AssetsTools.NET
             Name = field.GetNameString(typeTreeType.StringBufferBytes);
             Type = field.GetTypeString(typeTreeType.StringBufferBytes);
             ValueType = AssetTypeValueField.GetValueTypeByTypeName(Type);
-            IsArray = Net35Polyfill.HasFlag(field.TypeFlags, TypeTreeNodeFlags.Array);
+            IsArray = field.TypeFlags.HasFlag(TypeTreeNodeFlags.Array);
             IsAligned = (field.MetaFlags & 0x4000) != 0;
             HasValue = ValueType != AssetValueType.None;
             Version = field.Version;

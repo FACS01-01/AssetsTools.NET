@@ -1,4 +1,4 @@
-﻿using AssetsTools.NET.Extra;
+﻿using AssetsTools.NET.Standard.IO.Extensions;
 using System;
 using System.IO;
 
@@ -39,7 +39,7 @@ namespace AssetsTools.NET
                 stream.Position = offset;
             }
 
-            stream.CopyToCompat(writer.BaseStream, length);
+            stream.CopyToExactly(writer.BaseStream, length);
 
             if (closeOnWrite && finalWrite)
             {

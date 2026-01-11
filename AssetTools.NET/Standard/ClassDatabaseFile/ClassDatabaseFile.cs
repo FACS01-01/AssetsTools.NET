@@ -1,11 +1,8 @@
-﻿using AssetsTools.NET.Extra;
-using AssetsTools.NET.Extra.Decompressors.LZ4;
-using LZ4ps;
-using SevenZip.Compression.LZMA;
+﻿using AssetsTools.NET.Standard.Codecs;
+using AssetsTools.NET.Standard.IO.Extensions;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 
 namespace AssetsTools.NET
 {
@@ -77,7 +74,7 @@ namespace AssetsTools.NET
             Header.DecompressedSize = (int)dStream.Length;
             Header.Write(writer);
 
-            cStream.CopyToCompat(writer.BaseStream);
+            cStream.CopyToExactly(writer.BaseStream);
         }
 
         private AssetsFileReader GetDecompressedReader(AssetsFileReader reader)
@@ -85,24 +82,14 @@ namespace AssetsTools.NET
             AssetsFileReader newReader = reader;
             if (Header.CompressionType != ClassFileCompressionType.Uncompressed)
             {
-                MemoryStream ms;
+                Stream ms;
                 if (Header.CompressionType == ClassFileCompressionType.Lz4)
                 {
-                    byte[] uncompressedBytes = new byte[Header.DecompressedSize];
-                    using (MemoryStream tempMs = new MemoryStream(reader.ReadBytes(Header.CompressedSize)))
-                    {
-                        Lz4DecoderStream decoder = new Lz4DecoderStream(tempMs);
-                        decoder.Read(uncompressedBytes, 0, Header.DecompressedSize);
-                        decoder.Dispose();
-                    }
-                    ms = new MemoryStream(uncompressedBytes);
+                    ms = CodecUtilities.DecompressLZ4ToNew(reader.BaseStream, Header.CompressedSize, Header.DecompressedSize, BackingStreamType.MemoryStream);
                 }
                 else if (Header.CompressionType == ClassFileCompressionType.Lzma)
                 {
-                    using (MemoryStream tempMs = new MemoryStream(reader.ReadBytes(Header.CompressedSize)))
-                    {
-                        ms = SevenZipHelper.StreamDecompress(tempMs);
-                    }
+                    ms = CodecUtilities.DecompressLZMAToNew(reader.BaseStream, Header.CompressedSize, Header.DecompressedSize, BackingStreamType.MemoryStream);
                 }
                 else
                 {
@@ -117,19 +104,16 @@ namespace AssetsTools.NET
 
         private MemoryStream GetCompressedStream(MemoryStream inStream)
         {
+            MemoryStream outStream = inStream;
             if (Header.CompressionType != ClassFileCompressionType.Uncompressed)
             {
                 if (Header.CompressionType == ClassFileCompressionType.Lz4)
                 {
-                    byte[] data = LZ4Codec.Encode32HC(inStream.ToArray(), 0, (int)inStream.Length);
-                    return new MemoryStream(data);
+                    outStream = (MemoryStream)CodecUtilities.CompressLZ4ToNew(inStream, (int)(inStream.Length - inStream.Position), CompressionType.LZ4HC, BackingStreamType.MemoryStream);
                 }
                 else if (Header.CompressionType == ClassFileCompressionType.Lzma)
                 {
-                    MemoryStream outStream = new MemoryStream();
-                    SevenZipHelper.Compress(inStream, outStream);
-                    outStream.Position = 0;
-                    return outStream;
+                    outStream = (MemoryStream)CodecUtilities.CompressLZMAToNew(inStream, inStream.Length - inStream.Position, BackingStreamType.MemoryStream);
                 }
                 else
                 {
@@ -137,8 +121,8 @@ namespace AssetsTools.NET
                 }
             }
 
-            inStream.Position = 0;
-            return inStream;
+            outStream.Position = 0;
+            return outStream;
         }
 
         /// <summary>

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using AssetsTools.NET.Standard.Codecs;
+using System;
 
 namespace AssetsTools.NET
 {
@@ -122,12 +123,12 @@ namespace AssetsTools.NET
         }
 
         // todo: enum
-        public byte GetCompressionType()
+        public CompressionType GetCompressionType()
         {
             if (Signature != "UnityFS")
                 throw new NotSupportedException($"{Signature} signature not supported!");
 
-            return (byte)(FileStreamHeader.Flags & AssetBundleFSHeaderFlags.CompressionMask);
+            return (CompressionType)(FileStreamHeader.Flags & AssetBundleFSHeaderFlags.CompressionMask);
         }
     }
 }
