@@ -32,6 +32,11 @@ namespace AssetsTools.NET.Standard.IO.Extensions
             }
         }
 
+        /// <summary>
+        /// Copies all remaining bytes from the current position to the destination stream.
+        /// </summary>
+        /// <param name="source">The source stream from which bytes are read.</param>
+        /// <param name="destination">The destination stream to which bytes are written.</param>
         public static void CopyToExactly(this Stream source, Stream destination)
         {
             ThrowIfCantRead(source);
@@ -41,6 +46,12 @@ namespace AssetsTools.NET.Standard.IO.Extensions
             CopyToExactly_Core(source, destination, copySize);
         }
 
+        /// <summary>
+        /// Copies a specified number of bytes from the current position to the provided destination stream.
+        /// </summary>
+        /// <param name="source">The stream to read bytes from.</param>
+        /// <param name="destination">The stream to which bytes are written.</param>
+        /// <param name="copySize">The exact number of bytes to copy.</param>
         public static void CopyToExactly(this Stream source, Stream destination, long copySize)
         {
             ThrowIfCantRead(source);
@@ -66,6 +77,35 @@ namespace AssetsTools.NET.Standard.IO.Extensions
                 return;
             }
 
+            if (source is SegmentStream ss)
+            {
+                ss.CopyToStream_Core(destination, copySize); // small optimization for SegmentStream
+                return;
+            }
+
+            CopyToFSExactly_Core(source, destination, copySize);
+        }
+
+        /// <summary>
+        /// Version of <see cref="CopyToExactly(Stream, Stream, long)"/> for source FileStreams and non-seekable source streams.
+        /// </summary>
+        /// <param name="source">The stream to read bytes from.</param>
+        /// <param name="destination">The stream to which bytes are written.</param>
+        /// <param name="copySize">The exact number of bytes to copy.</param>
+        internal static void CopyToFSExactly(Stream source, Stream destination, long copySize)
+        {
+            ThrowIfCantRead(source);
+            ThrowIfCantWrite(destination);
+            ArgumentOutOfRangeException.ThrowIfNegative(copySize, nameof(copySize));
+
+            if (copySize == 0)
+                return;
+
+            CopyToFSExactly_Core(source, destination, copySize);
+        }
+
+        private static void CopyToFSExactly_Core(Stream source, Stream destination, long copySize)
+        {
             int fitBufferSize = copySize > MemorySizes.OPTIMAL_BUFFER_SIZE ? MemorySizes.OPTIMAL_BUFFER_SIZE : (int)copySize;
 
             byte[] buffer = ArrayPool<byte>.Shared.Rent(fitBufferSize);
@@ -78,7 +118,7 @@ namespace AssetsTools.NET.Standard.IO.Extensions
 
                     int bytesRead = source.Read(bufferSpan[..toRead]);
                     if (bytesRead == 0)
-                        throw new IOException($"Unexpected End Of Stream during copy exact, {copySize} bytes left.");
+                        throw new IOException($"Unexpected End Of Stream during copy exact, {copySize} bytes missing to read.");
 
                     destination.Write(bufferSpan[..bytesRead]);
                     copySize -= bytesRead;
@@ -188,7 +228,7 @@ namespace AssetsTools.NET.Standard.IO.Extensions
                 throw new ArgumentOutOfRangeException($"Required size ({size}) greater than MemoryStream max size.");
         }
 
-        internal static void ThrowIfCantWrite(Stream destination)
+        internal static void ThrowIfCantWrite(this Stream destination)
         {
             ArgumentNullException.ThrowIfNull(destination);
             if (!destination.CanWrite)
@@ -199,7 +239,7 @@ namespace AssetsTools.NET.Standard.IO.Extensions
             }
         }
 
-        internal static void ThrowIfCantRead(Stream source)
+        internal static void ThrowIfCantRead(this Stream source)
         {
             ArgumentNullException.ThrowIfNull(source);
             if (!source.CanRead)

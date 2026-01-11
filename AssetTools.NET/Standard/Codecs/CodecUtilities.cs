@@ -201,7 +201,7 @@ namespace AssetsTools.NET.Standard.Codecs
             switch (streamType)
             {
                 case BackingStreamType.MemoryStream:
-                    byte[] compressLZ4 = CompressLZ4(decompressedData, decompressedSize, compressionLevel);
+                    byte[] compressLZ4 = CompressLZ4ToArray(decompressedData, decompressedSize, compressionLevel);
                     return compressLZ4.NewExposedMemoryStream();
                 case BackingStreamType.FileStream:
                     FileStream fs = StreamExtensions.NewTempFileStream(LZ4Codec.MaximumOutputSize(decompressedSize));
@@ -213,20 +213,40 @@ namespace AssetsTools.NET.Standard.Codecs
             }
         }
 
-        public static byte[] CompressLZ4(Stream decompressedData, int decompressedSize, CompressionType compressionLevel)
+        public static byte[] CompressLZ4ToArray(Stream decompressedData, int decompressedSize, CompressionType compressionLevel)
         {
             if (decompressedData.TryReadBuffer(decompressedSize, out ReadOnlySpan<byte> decompressedSpan))
-                return CompressLZ4(decompressedSpan, compressionLevel);
+                return CompressLZ4ToArray(decompressedSpan, compressionLevel);
 
             var buffer = ArrayPool<byte>.Shared.Rent(decompressedSize);
             try
             {
                 var decompressedSpan2 = buffer.AsSpan(0, decompressedSize);
                 decompressedData.ReadExactly(decompressedSpan2);
-                return CompressLZ4(decompressedSpan2, compressionLevel);
+                return CompressLZ4ToArray(decompressedSpan2, compressionLevel);
             }
             finally
             { 
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        public static byte[] CompressLZ4ToArray(ReadOnlySpan<byte> decompressedData, CompressionType compressionLevel)
+        {
+            int maxCompressedSize = LZ4Codec.MaximumOutputSize(decompressedData.Length);
+
+            var buffer = ArrayPool<byte>.Shared.Rent(maxCompressedSize);
+            try
+            {
+                Span<byte> maxCompressSpan = buffer;
+                int compressedSize = CompressLZ4(decompressedData, maxCompressSpan, compressionLevel);
+                byte[] finalCompressArray = GC.AllocateUninitializedArray<byte>(compressedSize);
+                Span<byte> compressSpan = maxCompressSpan[..compressedSize];
+                compressSpan.CopyTo(finalCompressArray);
+                return finalCompressArray;
+            }
+            finally
+            {
                 ArrayPool<byte>.Shared.Return(buffer);
             }
         }
@@ -288,26 +308,6 @@ namespace AssetsTools.NET.Standard.Codecs
                 var decompressedSpan2 = buffer.AsSpan(0, decompressedSize);
                 decompressedData.ReadExactly(decompressedSpan2);
                 return CompressLZ4(decompressedSpan2, compressStream, compressionLevel);
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
-        }
-
-        public static byte[] CompressLZ4(ReadOnlySpan<byte> decompressedData, CompressionType compressionLevel)
-        {
-            int maxCompressedSize = LZ4Codec.MaximumOutputSize(decompressedData.Length);
-
-            var buffer = ArrayPool<byte>.Shared.Rent(maxCompressedSize);
-            try
-            {
-                Span<byte> maxCompressSpan = buffer;
-                int compressedSize = CompressLZ4(decompressedData, maxCompressSpan, compressionLevel);
-                byte[] finalCompressArray = GC.AllocateUninitializedArray<byte>(compressedSize);
-                Span<byte> compressSpan = maxCompressSpan[..compressedSize];
-                compressSpan.CopyTo(finalCompressArray);
-                return finalCompressArray;
             }
             finally
             {

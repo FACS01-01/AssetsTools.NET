@@ -1,4 +1,5 @@
 ﻿using AssetsTools.NET.Standard.IO;
+using AssetsTools.NET.Standard.IO.Extensions;
 using System;
 using System.Buffers;
 using System.IO;
@@ -248,13 +249,20 @@ namespace AssetsTools.NET
         /// Copies a specified number of bytes from the current position to the provided destination stream.
         /// </summary>
         /// <param name="destination">The stream to which the data will be copied.</param>
-        /// <param name="copySize">The number of bytes to copy from the current position.</param>
+        /// <param name="copySize">The exact number of bytes to copy from the current position.</param>
         public void CopyToStream(Stream destination, long copySize)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            destination.ThrowIfCantWrite();
             if (copySize == 0)
                 return;
             ArgumentOutOfRangeException.ThrowIfNegative(copySize, nameof(copySize));
+
+            CopyToStream_Core(destination, copySize);
+        }
+
+        internal void CopyToStream_Core(Stream destination, long copySize)
+        {
             ArgumentOutOfRangeException.ThrowIfGreaterThan(copySize, Length - _position, nameof(copySize));
 
             _baseStream.Position = BaseOffset + _position;
@@ -279,9 +287,9 @@ namespace AssetsTools.NET
 
                     int bytesRead = _baseStream.Read(bufferSpan[..toRead]);
                     if (bytesRead == 0)
-                        throw new EndOfStreamException($"Unexpected End Of Stream during copy exact, {copySize} bytes missing to read.");
-
+                        throw new IOException($"Unexpected End Of Stream during copy exact, {copySize} bytes missing to read.");
                     _position += bytesRead;
+
                     destination.Write(bufferSpan[..bytesRead]);
                     copySize -= bytesRead;
                 }

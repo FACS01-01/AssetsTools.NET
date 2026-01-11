@@ -465,7 +465,7 @@ namespace AssetsTools.NET
                     byte[] uncompressedBlock = bundleDataReader.ReadBytes(0x20000);
                     while (uncompressedBlock.Length != 0)
                     {
-                        byte[] compressedBlock = CodecUtilities.CompressLZ4(uncompressedBlock, compType);
+                        byte[] compressedBlock = CodecUtilities.CompressLZ4ToArray(uncompressedBlock, compType);
 
                         if (progress != null)
                         {
@@ -550,7 +550,7 @@ namespace AssetsTools.NET
             }
 
             // listing is usually lz4 even if the data blocks are lzma
-            byte[] bundleInfoBytesCom = CodecUtilities.CompressLZ4(bundleInfoBytes, compType);
+            byte[] bundleInfoBytesCom = CodecUtilities.CompressLZ4ToArray(bundleInfoBytes, compType);
 
             long totalFileSize = headerSize + bundleInfoBytesCom.Length + totalCompressedSize;
             newFsHeader.TotalFileSize = totalFileSize;

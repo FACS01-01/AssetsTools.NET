@@ -70,7 +70,7 @@ namespace AssetsTools.NET
             if (Header.CompressionType == ClassFileCompressionType.Lz4)
             {
 
-                byte[] data = CodecUtilities.CompressLZ4(dStream, (int)dStream.Length, CompressionType.LZ4HC);
+                byte[] data = CodecUtilities.CompressLZ4ToArray(dStream, (int)dStream.Length, CompressionType.LZ4HC);
 
                 Header.CompressedSize = (uint)data.Length;
                 Header.DecompressedSize = (uint)dStream.Length;
