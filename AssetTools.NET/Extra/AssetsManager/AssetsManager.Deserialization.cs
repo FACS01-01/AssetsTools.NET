@@ -340,7 +340,7 @@ namespace AssetsTools.NET.Extra
                 {
                     AssetsFileReader reader = inst.file.Reader;
                     reader.Position = info.GetAbsoluteByteOffset(inst.file);
-                    reader.BaseStream.CopyToExactly(assetDataStream, info.ByteSize);
+                    StreamExtensions.CopyToExactly(reader.BaseStream, assetDataStream, info.ByteSize);
                 }
                 assetDataStream.Position = 0;
                 valueField = tempField.MakeValue(new AssetsFileReader(assetDataStream), 0, refMan);

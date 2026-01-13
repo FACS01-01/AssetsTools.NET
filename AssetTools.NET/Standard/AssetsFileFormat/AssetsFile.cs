@@ -159,7 +159,7 @@ namespace AssetsTools.NET
                 else
                 {
                     Reader.Position = assetInfo.GetAbsoluteByteOffset(this);
-                    Reader.BaseStream.CopyToExactly(writer.BaseStream, assetInfo.ByteSize);
+                    StreamExtensions.CopyToExactly(Reader.BaseStream, writer.BaseStream, assetInfo.ByteSize);
                 }
 
                 assetInfo.ByteOffset = newByteStart;

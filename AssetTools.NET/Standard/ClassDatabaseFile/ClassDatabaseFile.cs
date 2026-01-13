@@ -74,7 +74,7 @@ namespace AssetsTools.NET
             Header.DecompressedSize = (int)dStream.Length;
             Header.Write(writer);
 
-            cStream.CopyToExactly(writer.BaseStream);
+            cStream.CopyTo(writer.BaseStream);
         }
 
         private AssetsFileReader GetDecompressedReader(AssetsFileReader reader)

@@ -86,7 +86,7 @@ namespace AssetsTools.NET
                 Header.DecompressedSize = (uint)dStream.Length;
 
                 Header.Write(writer);
-                cStream.CopyToExactly(writer.BaseStream);
+                cStream.CopyTo(writer.BaseStream);
             }
             else
             {
@@ -94,7 +94,7 @@ namespace AssetsTools.NET
                 Header.DecompressedSize = (uint)dStream.Length;
 
                 Header.Write(writer);
-                dStream.CopyToExactly(writer.BaseStream);
+                dStream.CopyTo(writer.BaseStream);
             }
         }
 

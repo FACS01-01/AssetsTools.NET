@@ -20,11 +20,12 @@ namespace AssetsTools.NET.Standard.IO.Extensions
                     source.ReadExactly(copyData);
                     return NewExposedMemoryStream(copyData);
                 case BackingStreamType.FileStream:
-                    int bufferSize = copySize < 0 ?
-                        MemorySizes.DEFAULT_FILESTREAM_BUFFER_SIZE : (copySize > MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE ?
-                        MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE : (int)copySize);
+                    int bufferSize = copySize > MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE ?
+                        MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE :
+                        (copySize > MemorySizes.DEFAULT_FILESTREAM_BUFFER_SIZE ?
+                        (int)copySize : MemorySizes.DEFAULT_FILESTREAM_BUFFER_SIZE);
                     FileStream new_fs = NewTempFileStream(bufferSize);
-                    source.CopyToExactly(new_fs, copySize);
+                    CopyToExactly(source, new_fs, copySize);
                     new_fs.Position = 0;
                     return new_fs;
                 default:
@@ -32,67 +33,8 @@ namespace AssetsTools.NET.Standard.IO.Extensions
             }
         }
 
-        /// <summary>
-        /// Copies all remaining bytes from the current position to the destination stream.
-        /// </summary>
-        /// <param name="source">The source stream from which bytes are read.</param>
-        /// <param name="destination">The destination stream to which bytes are written.</param>
-        public static void CopyToExactly(this Stream source, Stream destination)
-        {
-            ThrowIfCantRead(source);
-            long copySize = source.Length - source.Position;
-            ArgumentOutOfRangeException.ThrowIfNegative(copySize, nameof(copySize));
-
-            CopyToExactly_Core(source, destination, copySize);
-        }
-
-        /// <summary>
-        /// Copies a specified number of bytes from the current position to the provided destination stream.
-        /// </summary>
-        /// <param name="source">The stream to read bytes from.</param>
-        /// <param name="destination">The stream to which bytes are written.</param>
-        /// <param name="copySize">The exact number of bytes to copy.</param>
-        public static void CopyToExactly(this Stream source, Stream destination, long copySize)
-        {
-            ThrowIfCantRead(source);
-            ArgumentOutOfRangeException.ThrowIfNegative(copySize, nameof(copySize));
-
-            CopyToExactly_Core(source, destination, copySize);
-        }
-
-        private static void CopyToExactly_Core(Stream source, Stream destination, long copySize)
-        {
-            ThrowIfCantWrite(destination);
-
-            if (copySize == 0)
-                return;
-
-            if (source.TryReadBuffer_Core(copySize, out ReadOnlySpan<byte> buff))
-            {
-                //var pos = destination.Position;
-                destination.Write(buff); // it does throw IOException
-                //copySize -= destination.Position - pos;
-                //if (copySize != 0)
-                //    throw new IOException($"Unexpected End Of Stream during copy exact, {copySize} bytes left.");
-                return;
-            }
-
-            if (source is SegmentStream ss)
-            {
-                ss.CopyToStream_Core(destination, copySize); // small optimization for SegmentStream
-                return;
-            }
-
-            CopyToFSExactly_Core(source, destination, copySize);
-        }
-
-        /// <summary>
-        /// Version of <see cref="CopyToExactly(Stream, Stream, long)"/> for source FileStreams and non-seekable source streams.
-        /// </summary>
-        /// <param name="source">The stream to read bytes from.</param>
-        /// <param name="destination">The stream to which bytes are written.</param>
-        /// <param name="copySize">The exact number of bytes to copy.</param>
-        internal static void CopyToFSExactly(Stream source, Stream destination, long copySize)
+        /// <inheritdoc cref="IStreamCopyToExactly.CopyToExactly(Stream, long, int)"/>
+        public static void CopyToExactly(Stream source, Stream destination, long copySize)
         {
             ThrowIfCantRead(source);
             ThrowIfCantWrite(destination);
@@ -101,37 +43,77 @@ namespace AssetsTools.NET.Standard.IO.Extensions
             if (copySize == 0)
                 return;
 
-            CopyToFSExactly_Core(source, destination, copySize);
+            var currentPos = source.Position;
+            var criticalPos = source.Length - copySize;
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(currentPos, criticalPos, nameof(copySize));
+
+            var bufferSize = GetCopyBufferSize(source);
+            if (currentPos == criticalPos)
+            {
+                if (copySize < bufferSize)
+                    bufferSize = (int)copySize;
+                source.CopyTo(destination, bufferSize);
+            }
+            else
+                CopyToExactly(source, destination, copySize, bufferSize);
         }
 
-        private static void CopyToFSExactly_Core(Stream source, Stream destination, long copySize)
+        /// <inheritdoc cref="IStreamCopyToExactly.CopyToExactly(Stream, long, int)"/>
+        internal static void CopyToExactly(Stream source, Stream destination, long copySize, int bufferSize) //verify args before calling
         {
-            int fitBufferSize = copySize > MemorySizes.OPTIMAL_BUFFER_SIZE ? MemorySizes.OPTIMAL_BUFFER_SIZE : (int)copySize;
+            if (copySize < bufferSize)
+                bufferSize = (int)copySize;
 
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(fitBufferSize);
+            switch (source)
+            {
+                case MemoryStream ms:
+                    CopyMSToExactly(ms, destination, copySize, bufferSize);
+                    return;
+                case IStreamCopyToExactly scte:
+                    scte.CopyToExactly(destination, copySize, bufferSize);
+                    return;
+                default:
+                    CopyToExactlyGeneric(source, destination, copySize, bufferSize);
+                    return;
+            }
+        }
+
+        private static void CopyMSToExactly(MemoryStream source, Stream destination, long copySize, int bufferSize)
+        {
+            if (source.TryGetBuffer(out var buffer))
+            {
+                buffer = buffer.Slice((int)source.Position, (int)copySize);
+                source.Position += copySize;
+                destination.Write(buffer);
+                return;
+            }
+
+            CopyToExactlyGeneric(source, destination, copySize, bufferSize);
+        }
+
+        private static void CopyToExactlyGeneric(Stream source, Stream destination, long copySize, int bufferSize)
+        {
+            byte[] rentBuffer = ArrayPool<byte>.Shared.Rent(bufferSize);
             try
             {
-                Span<byte> bufferSpan = buffer;
                 while (copySize > 0)
                 {
-                    int toRead = copySize >= bufferSpan.Length ? bufferSpan.Length : (int)copySize;
-
-                    int bytesRead = source.Read(bufferSpan[..toRead]);
-                    if (bytesRead == 0)
+                    int toRead = copySize > bufferSize ? bufferSize : (int)copySize;
+                    int read = source.Read(rentBuffer, 0, toRead);
+                    if (read == 0)
                         throw new IOException($"Unexpected End Of Stream during copy exact, {copySize} bytes missing to read.");
-
-                    destination.Write(bufferSpan[..bytesRead]);
-                    copySize -= bytesRead;
+                    destination.Write(rentBuffer, 0, read);
+                    copySize -= read;
                 }
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(buffer);
+                ArrayPool<byte>.Shared.Return(rentBuffer);
             }
         }
 
         /// <summary>
-        /// Try get the MemoryStream's internal buffer, starting at its current Position, and advancing it by <paramref name="accessSize"/>.
+        /// Try get the <paramref name="stream"/>'s internal buffer, starting at its current Position, and advancing it by <paramref name="accessSize"/>.
         /// </summary>
         public static bool TryReadBuffer(this Stream stream, long accessSize, out ReadOnlySpan<byte> buffer)
         {
@@ -154,27 +136,27 @@ namespace AssetsTools.NET.Standard.IO.Extensions
             switch (stream)
             {
                 case MemoryStream ms:
+                    pos = ms.Position;
+                    ArgumentOutOfRangeException.ThrowIfGreaterThan(pos, ms.Length - accessSize, nameof(accessSize));
                     if (!ms.TryGetBuffer(out arrSeg))
                     {
                         buffer = null;
                         return false;
                     }
-                    pos = ms.Position;
                     break;
-                case SegmentStream ss:
+                case IStreamTryGetBuffer ss:
+                    pos = stream.Position;
+                    ArgumentOutOfRangeException.ThrowIfGreaterThan(pos, stream.Length - accessSize, nameof(accessSize));
                     if (!ss.TryGetBuffer(out arrSeg))
                     {
                         buffer = null;
                         return false;
                     }
-                    pos = ss.Position;
                     break;
                 default:
                     buffer = null;
                     return false;
             }
-
-            ArgumentOutOfRangeException.ThrowIfGreaterThan(pos, arrSeg.Count - accessSize, nameof(accessSize));
 
             buffer = arrSeg.AsSpan((int)pos, (int)accessSize);
             stream.Position += accessSize;
@@ -228,26 +210,70 @@ namespace AssetsTools.NET.Standard.IO.Extensions
                 throw new ArgumentOutOfRangeException($"Required size ({size}) greater than MemoryStream max size.");
         }
 
-        internal static void ThrowIfCantWrite(this Stream destination)
+        internal static void ThrowIfCantSeek(this Stream stream)
         {
-            ArgumentNullException.ThrowIfNull(destination);
-            if (!destination.CanWrite)
+            if (!stream.CanSeek) // also throws on null reference
+                throw new NotSupportedException("Stream is not seekable.");
+        }
+
+        internal static void ThrowIfCantRead(this Stream stream)
+        {
+            if (!stream.CanRead) // also throws on null reference
             {
-                if (destination.CanRead)
-                    throw new NotSupportedException("Destination stream is read-only.");
-                throw new ObjectDisposedException("Destination stream is disposed.");
+                if (stream.CanWrite)
+                    throw new NotSupportedException("Stream is write-only.");
+                throw new ObjectDisposedException(nameof(stream), "Stream is disposed.");
             }
         }
 
-        internal static void ThrowIfCantRead(this Stream source)
+        internal static void ThrowIfCantWrite(this Stream stream)
         {
-            ArgumentNullException.ThrowIfNull(source);
-            if (!source.CanRead)
+            if (!stream.CanWrite) // also throws on null reference
             {
-                if (source.CanWrite)
-                    throw new NotSupportedException("Source stream is write-only.");
-                throw new ObjectDisposedException("Source stream is disposed.");
+                if (stream.CanRead)
+                    throw new NotSupportedException("Destination stream is read-only.");
+                throw new ObjectDisposedException(nameof(stream), "Stream is disposed.");
             }
+        }
+
+        public interface IStreamCopyToExactly
+        {
+            /// <summary>
+            /// Copies <paramref name="copySize"/> number of bytes, starting at the current <see cref="Stream.Position"/>, to the specified <paramref name="destination"/>.
+            /// </summary>
+            /// <param name="destination">The stream to which the data will be copied.</param>
+            /// <param name="copySize">The exact number of bytes to copy.</param>
+            /// <param name="bufferSize">The size of the buffer to use during the copy operation.</param>
+            void CopyToExactly(Stream destination, long copySize, int bufferSize);
+        }
+        public interface IStreamTryGetBuffer
+        {
+            /// <summary>
+            /// Returns the internal buffer of the base <see cref="MemoryStream"/>, if available, sliced to this <see cref="Stream"/>'s range.
+            /// </summary>
+            /// <returns> <see langword="true"/> if the buffer is exposable; otherwise, <see langword="false"/>.</returns>
+            bool TryGetBuffer(out ArraySegment<byte> buffer);
+        }
+
+        internal static int GetCopyBufferSize(Stream stream) // from .NET Foundation Stream.cs
+        {
+            int bufferSize = MemorySizes.OPTIMAL_BUFFER_SIZE;
+
+            if (stream.CanSeek)
+            {
+                long length = stream.Length;
+                long position = stream.Position;
+                if (length > position)
+                {
+                    long remaining = length - position;
+                    if (remaining > 0 && remaining < bufferSize)
+                        bufferSize = (int)remaining;
+                }
+                else
+                    bufferSize = 1;
+            }
+
+            return bufferSize;
         }
     }
 }

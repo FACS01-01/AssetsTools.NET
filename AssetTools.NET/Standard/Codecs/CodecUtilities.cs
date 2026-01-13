@@ -36,7 +36,7 @@ namespace AssetsTools.NET.Standard.Codecs
             switch (compressionType)
             {
                 case CompressionType.None:
-                    compressedData.CopyToExactly(decompressStream, compressedSize);
+                    StreamExtensions.CopyToExactly(compressedData, decompressStream, compressedSize);
                     return;
                 case CompressionType.LZMA:
                     DecompressLZMA(compressedData, decompressStream, compressedSize, decompressedSize);
@@ -181,7 +181,7 @@ namespace AssetsTools.NET.Standard.Codecs
             switch (compressionType)
             {
                 case CompressionType.None:
-                    decompressedData.CopyToExactly(compressStream, decompressedSize);
+                    StreamExtensions.CopyToExactly(decompressedData, compressStream, decompressedSize);
                     break;
                 case CompressionType.LZMA:
                     CompressLZMA(decompressedData, decompressedSize, compressStream);

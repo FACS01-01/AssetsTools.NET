@@ -1,17 +1,15 @@
-﻿using AssetsTools.NET.Standard.IO;
-using AssetsTools.NET.Standard.IO.Extensions;
+﻿using AssetsTools.NET.Standard.IO.Extensions;
 using System;
-using System.Buffers;
+using System.Collections.Generic;
 using System.IO;
 
 namespace AssetsTools.NET
 {
-    public class SegmentStream : Stream
+    public class SegmentStream : Stream, StreamExtensions.IStreamCopyToExactly, StreamExtensions.IStreamTryGetBuffer
     {
         public SegmentStream(Stream baseStream, long baseOffset, long length = -1, bool canWrite = true, bool leaveOpen = true)
         {
-            if (!baseStream.CanSeek)
-                throw new ArgumentException("Base stream must be seekable.", nameof(baseStream));
+            baseStream.ThrowIfCantSeek();
 
             if (baseOffset < 0 || baseOffset > baseStream.Length)
                 throw new ArgumentOutOfRangeException(nameof(baseOffset));
@@ -19,7 +17,7 @@ namespace AssetsTools.NET
             if (length >= 0 && length > baseStream.Length - baseOffset)
                 throw new ArgumentOutOfRangeException(nameof(length));
 
-            _leaveOpen = leaveOpen;
+            CloseBaseOnDispose = !leaveOpen;
             _canWrite = canWrite;
             _length = length;
 
@@ -30,8 +28,8 @@ namespace AssetsTools.NET
                 _canWrite = _canWrite && baseSegmentStream._canWrite;
                 if (baseSegmentStream.IsLengthRestricted && length < 0)
                     _length = baseSegmentStream.Length - baseOffset;
-                if (!_leaveOpen)
-                    _leaveOpen = baseSegmentStream._leaveOpen;
+                if (CloseBaseOnDispose)
+                    CloseBaseOnDispose = baseSegmentStream.CloseBaseOnDispose;
             }
             else
             {
@@ -45,7 +43,8 @@ namespace AssetsTools.NET
         {
             get
             {
-                return _baseStream ?? throw new ObjectDisposedException(nameof(SegmentStream));
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _baseStream;
             }
         }
 
@@ -86,8 +85,7 @@ namespace AssetsTools.NET
         }
         public bool IsLengthRestricted => _length >= 0;
 
-        private readonly bool _leaveOpen;
-        public bool CloseBaseOnDispose => !_leaveOpen;
+        public readonly bool CloseBaseOnDispose;
 
         public override void Flush()
         {
@@ -139,7 +137,6 @@ namespace AssetsTools.NET
                 _ => throw new ArgumentException("Invalid Seek origin request.")
             };
 
-            ArgumentOutOfRangeException.ThrowIfGreaterThan(offset, long.MaxValue - originPos, nameof(offset));
             long finalPos = originPos + offset;
 
             Position = finalPos;
@@ -197,13 +194,112 @@ namespace AssetsTools.NET
 
             if (disposing)
             {
-                if (!_leaveOpen)
+                if (CloseBaseOnDispose)
                     _baseStream.Close();
                 if (_baseStream is not MemoryStream) // Don't set to null - allow TryGetBuffer to work
                     _baseStream = null;
             }
 
             _disposed = true;
+        }
+        public void DisposeLeavingBaseOpen()
+        {
+            if (_disposed)
+                return;
+
+            if (_baseStream is not MemoryStream) // Don't set to null - allow TryGetBuffer to work
+                _baseStream = null;
+
+            _disposed = true;
+        }
+
+        public override void CopyTo(Stream destination, int bufferSize)
+        {
+            // verify this Stream is not disposed, destination is writable, and bufferSize is valid
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            destination.ThrowIfCantWrite();
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSize, nameof(bufferSize));
+
+            // if there's no data left to copy, return
+            var length = Length;
+            if (_position >= length)
+                return;
+
+            // verify base resources are readable
+            _baseStream.ThrowIfCantRead();
+
+            // init base resources position
+            _baseStream.Position = BaseOffset + _position;
+
+            // delegate copy based of length
+            var copySize = length - _position;
+            if (IsLengthRestricted && _length != length)
+                StreamExtensions.CopyToExactly(_baseStream, destination, copySize, bufferSize);
+            else
+            {
+                if (copySize < bufferSize) // fix buffer size if too big
+                    bufferSize = (int)copySize;
+                _baseStream.CopyTo(destination, bufferSize);
+            }
+
+            // update this Stream position
+            _position = length;
+        }
+
+        /// <inheritdoc cref="SegmentStream.CopyToExactly(Stream, long, int)"/>
+        public void CopyToExactly(Stream destination, long copySize) =>
+            CopyToExactly(destination, copySize, StreamExtensions.GetCopyBufferSize(this));
+
+        public void CopyToExactly(Stream destination, long copySize, int bufferSize)
+        {
+            // verify this Stream is not disposed, destination is writable, and bufferSize is valid
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            destination.ThrowIfCantWrite();
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSize, nameof(bufferSize));
+
+            // verify copySize is valid
+            ArgumentOutOfRangeException.ThrowIfNegative(copySize, nameof(copySize));
+
+            // if copy request if of size 0, return
+            if (copySize == 0)
+                return;
+
+            // verify base resources are readable
+            _baseStream.ThrowIfCantRead();
+
+            // verify enough data is available to copy
+            var criticalPos = Length - copySize;
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(_position, criticalPos, nameof(copySize));
+
+            // init base resources position
+            _baseStream.Position = BaseOffset + _position;
+
+            // delegate copy based of position
+            if (_position == criticalPos)
+            {
+                if (copySize < bufferSize) // fix buffer size if too big
+                    bufferSize = (int)copySize;
+                _baseStream.CopyTo(destination, bufferSize);
+            }
+            else
+                StreamExtensions.CopyToExactly(_baseStream, destination, copySize, bufferSize);
+
+            // update this Stream position
+            _position += copySize;
+        }
+
+        public bool TryGetBuffer(out ArraySegment<byte> buffer)
+        {
+            if (_baseStream == null ||
+                _baseStream is not MemoryStream ms ||
+                !ms.TryGetBuffer(out ArraySegment<byte> baseBuffer))
+            {
+                buffer = null;
+                return false;
+            }
+
+            buffer = baseBuffer.Slice((int)BaseOffset, (int)Length);
+            return true;
         }
 
         private void ThrowIfCantWrite()
@@ -218,85 +314,56 @@ namespace AssetsTools.NET
         }
 
         /// <summary>
-        /// Returns the internal buffer of the base MemoryStream, if available, sliced to this SegmentStream's range.
+        /// Merges adjacent compatible <see cref="SegmentStream"/> instances within <paramref name="streams"/> into single, larger <see cref="SegmentStream"/> objects.
         /// </summary>
-        /// <returns>true if the buffer is exposable; otherwise, false.</returns>
-        public bool TryGetBuffer(out ArraySegment<byte> buffer)
+        /// <param name="streams">The list of streams to process.</param>
+        public static void JoinSegmentStreams(List<Stream> streams)
         {
-            if (_baseStream == null ||
-                _baseStream is not MemoryStream ms ||
-                !ms.TryGetBuffer(out ArraySegment<byte> baseBuffer))
-            {
-                buffer = null;
-                return false;
-            }
-            
-            buffer = baseBuffer.Slice((int)BaseOffset, (int)Length);
-            return true;
-        }
-
-        /// <summary>
-        /// Copies the remaining data from the current position to the specified destination stream.
-        /// </summary>
-        /// <param name="destination">The stream to which the data will be copied.</param>
-        public void CopyToStream(Stream destination)
-        {
-            long copySize = Length - _position;
-            CopyToStream(destination, copySize);
-        }
-
-        /// <summary>
-        /// Copies a specified number of bytes from the current position to the provided destination stream.
-        /// </summary>
-        /// <param name="destination">The stream to which the data will be copied.</param>
-        /// <param name="copySize">The exact number of bytes to copy from the current position.</param>
-        public void CopyToStream(Stream destination, long copySize)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            destination.ThrowIfCantWrite();
-            if (copySize == 0)
+            if (streams.Count < 2)
                 return;
-            ArgumentOutOfRangeException.ThrowIfNegative(copySize, nameof(copySize));
 
-            CopyToStream_Core(destination, copySize);
-        }
-
-        internal void CopyToStream_Core(Stream destination, long copySize)
-        {
-            ArgumentOutOfRangeException.ThrowIfGreaterThan(copySize, Length - _position, nameof(copySize));
-
-            _baseStream.Position = BaseOffset + _position;
-
-            if (TryGetBuffer(out var buff))
+            for (int i = 0; i < streams.Count - 1; i++)
             {
-                _position += copySize;
-                _baseStream.Position += copySize;
-                destination.Write(buff.Slice((int)_position, (int)copySize));
-                return;
-            }
+                if (streams[i] is not SegmentStream seg || seg._disposed)
+                    continue;
 
-            int fitBufferSize = copySize > MemorySizes.OPTIMAL_BUFFER_SIZE ? MemorySizes.OPTIMAL_BUFFER_SIZE : (int)copySize;
-
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(fitBufferSize);
-            try
-            {
-                Span<byte> bufferSpan = buffer;
-                while (copySize > 0)
+                Stream baseStream = seg._baseStream;
+                long nextOffset = seg.BaseOffset + seg.Length;
+                if (nextOffset < 0) // crazy overflow
+                    continue;
+                bool canWrite = seg.CanWrite;
+                bool willCloseBase = seg.CloseBaseOnDispose;
+                int i_next = i + 1;
+                int j = i_next;
+                for (; j < streams.Count; j++)
                 {
-                    int toRead = copySize >= bufferSpan.Length ? bufferSpan.Length : (int)copySize;
-
-                    int bytesRead = _baseStream.Read(bufferSpan[..toRead]);
-                    if (bytesRead == 0)
-                        throw new IOException($"Unexpected End Of Stream during copy exact, {copySize} bytes missing to read.");
-                    _position += bytesRead;
-
-                    destination.Write(bufferSpan[..bytesRead]);
-                    copySize -= bytesRead;
+                    if (streams[j] is not SegmentStream nextSeg ||
+                        nextSeg._disposed ||
+                        nextSeg._baseStream != baseStream ||
+                        nextSeg._canWrite != canWrite ||
+                        nextSeg.BaseOffset != nextOffset ||
+                        long.MaxValue - nextSeg.Length < nextOffset)
+                        break;
+                    nextOffset += nextSeg.Length;
+                    if (willCloseBase)
+                        willCloseBase = nextSeg.CloseBaseOnDispose;
+                    nextSeg.DisposeLeavingBaseOpen();
                 }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
+                j -= i_next;
+                if (j == 0)
+                    continue;
+
+                long newSegLength = nextOffset - seg.BaseOffset;
+                SegmentStream newSeg = new(baseStream, seg.BaseOffset, newSegLength, canWrite, !willCloseBase);
+
+                seg.DisposeLeavingBaseOpen();
+                streams[i] = newSeg;
+
+                while (j != 0)
+                {
+                    streams.RemoveAt(i_next);
+                    j--;
+                }
             }
         }
     }

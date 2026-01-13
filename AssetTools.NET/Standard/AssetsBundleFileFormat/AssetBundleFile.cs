@@ -193,7 +193,7 @@ namespace AssetsTools.NET
                 else
                 {
                     DataReader.Position = dirInfo.Offset;
-                    DataReader.BaseStream.CopyToExactly(writer.BaseStream, dirInfo.DecompressedSize);
+                    StreamExtensions.CopyToExactly(DataReader.BaseStream, writer.BaseStream, dirInfo.DecompressedSize);
                 }
 
                 dirInfo.Offset = newOffset;
@@ -344,7 +344,7 @@ namespace AssetsTools.NET
                 for (int i = 0; i < newBundleInf.BlockInfos.Length; i++)
                 {
                     AssetBundleBlockInfo info = blockInfos[i];
-                    reader.BaseStream.CopyToExactly(writer.BaseStream, info.DecompressedSize);
+                    StreamExtensions.CopyToExactly(reader.BaseStream, writer.BaseStream, info.DecompressedSize);
                 }
             }
         }
@@ -530,7 +530,7 @@ namespace AssetsTools.NET
                     newBlocks.Add(blockInfo);
 
                     if (blockDirAtEnd)
-                        bundleDataStream.CopyToExactly(writer.BaseStream);
+                        bundleDataStream.CopyTo(writer.BaseStream);
                     else
                         newStreams.Add(bundleDataStream);
 
@@ -563,7 +563,7 @@ namespace AssetsTools.NET
                 foreach (Stream newStream in newStreams)
                 {
                     newStream.Position = 0;
-                    newStream.CopyToExactly(writer.BaseStream);
+                    newStream.CopyTo(writer.BaseStream);
                     newStream.Close();
                 }
             }

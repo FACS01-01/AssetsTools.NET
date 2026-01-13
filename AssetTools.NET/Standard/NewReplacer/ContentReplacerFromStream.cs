@@ -39,7 +39,7 @@ namespace AssetsTools.NET
                 stream.Position = offset;
             }
 
-            stream.CopyToExactly(writer.BaseStream, length);
+            StreamExtensions.CopyToExactly(stream, writer.BaseStream, length);
 
             if (closeOnWrite && finalWrite)
             {
