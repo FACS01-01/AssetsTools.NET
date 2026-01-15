@@ -93,27 +93,26 @@ namespace AssetsTools.NET.Standard.IO.Extensions
 
         private static void CopyToExactlyGeneric(Stream source, Stream destination, long copySize, int bufferSize)
         {
-            byte[] rentBuffer = ArrayPool<byte>.Shared.Rent(bufferSize);
-            try
+            TempBuffer.RunBufferedAction(bufferSize, (source, destination, copySize), static (state, buffer) =>
             {
+                var (source, destination, copySize) = state;
+                var bufferSize = buffer.Length;
+
                 while (copySize > 0)
                 {
                     int toRead = copySize > bufferSize ? bufferSize : (int)copySize;
-                    int read = source.Read(rentBuffer, 0, toRead);
+                    int read = source.Read(buffer[..toRead]);
                     if (read == 0)
                         throw new IOException($"Unexpected End Of Stream during copy exact, {copySize} bytes missing to read.");
-                    destination.Write(rentBuffer, 0, read);
+                    destination.Write(buffer[..read]);
                     copySize -= read;
                 }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(rentBuffer);
-            }
+            });
         }
 
         /// <summary>
-        /// Try get the <paramref name="stream"/>'s internal buffer, starting at its current Position, and advancing it by <paramref name="accessSize"/>.
+        /// Try get the <paramref name="stream"/>'s internal buffer, starting at its current Position,
+        /// and advancing it by <paramref name="accessSize"/>.
         /// </summary>
         public static bool TryReadBuffer(this Stream stream, long accessSize, out ReadOnlySpan<byte> buffer)
         {
@@ -236,10 +235,19 @@ namespace AssetsTools.NET.Standard.IO.Extensions
             }
         }
 
+        internal static void ThrowIfInvalidBufferSegment(byte[] buffer, int offset, int count)
+        {
+            ArgumentNullException.ThrowIfNull(buffer, nameof(buffer));
+            ArgumentOutOfRangeException.ThrowIfNegative(offset, nameof(offset));
+            ArgumentOutOfRangeException.ThrowIfNegative(count, nameof(count));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(offset, buffer.Length - count, nameof(count));
+        }
+
         public interface IStreamCopyToExactly
         {
             /// <summary>
-            /// Copies <paramref name="copySize"/> number of bytes, starting at the current <see cref="Stream.Position"/>, to the specified <paramref name="destination"/>.
+            /// Copies <paramref name="copySize"/> number of bytes, starting at the current <see cref="Stream.Position"/>,
+            /// to the specified <paramref name="destination"/>.
             /// </summary>
             /// <param name="destination">The stream to which the data will be copied.</param>
             /// <param name="copySize">The exact number of bytes to copy.</param>
@@ -249,7 +257,8 @@ namespace AssetsTools.NET.Standard.IO.Extensions
         public interface IStreamTryGetBuffer
         {
             /// <summary>
-            /// Returns the internal buffer of the base <see cref="MemoryStream"/>, if available, sliced to this <see cref="Stream"/>'s range.
+            /// Returns the internal buffer of the base <see cref="MemoryStream"/>, if available,
+            /// sliced to this <see cref="Stream"/>'s range.
             /// </summary>
             /// <returns> <see langword="true"/> if the buffer is exposable; otherwise, <see langword="false"/>.</returns>
             bool TryGetBuffer(out ArraySegment<byte> buffer);

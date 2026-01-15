@@ -4,9 +4,9 @@ namespace AssetsTools.NET.Standard.IO
     public static class MemorySizes
     {
         /// <summary>
-        /// 256 B
+        /// 1 KB
         /// </summary>
-        public const int STACKALLOC_MAX_SIZE = 256; // personal choice
+        public const int STACKALLOC_MAX_SIZE = 1024; // personal choice
         /// <summary>
         /// 10 MB
         /// </summary>

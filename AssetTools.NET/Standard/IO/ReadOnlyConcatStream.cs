@@ -6,7 +6,7 @@ using System.IO;
 
 namespace AssetsTools.NET.IO
 {
-    internal class ReadOnlyConcatStream : Stream, IList<Stream>
+    public class ReadOnlyConcatStream : Stream, IList<Stream>, StreamExtensions.IStreamCopyToExactly
     {
         public ReadOnlyConcatStream(bool leaveOpen = true) : this(3, leaveOpen) { }
 
@@ -38,7 +38,44 @@ namespace AssetsTools.NET.IO
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
                 ArgumentOutOfRangeException.ThrowIfNegative(value);
+                if (_position == value)
+                    return;
                 _position = value;
+                UpdateCurrentStreamIdx();
+            }
+        }
+
+        /// <summary>
+        /// The index of the stream that contains the current <see cref="Position"/>.
+        /// </summary>
+        /// <remarks>
+        /// If <see cref="Position"/> is at the end of the concatenated streams,
+        /// this will be equal to <see cref="Streams"/>.Count.
+        /// </remarks>
+        public int CurrentStreamIdx { get; private set; }
+
+        /// <summary>
+        /// Refreshes the <see cref="ReadOnlyConcatStream"/>'s internal state.
+        /// Use in case underlying streams have changed their lengths, and you won't set a new <see cref="Position"/>.
+        /// </summary>
+        /// <remarks>
+        /// It should be okey not to update if only streams after <see cref="CurrentStreamIdx"/> have changed.
+        /// </remarks>
+        public void Update()
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            UpdateCurrentStreamIdx();
+        }
+
+        private void UpdateCurrentStreamIdx()
+        {
+            long accumulatedLength = 0;
+            int streamsCount = _streams.Count;
+            for (CurrentStreamIdx = 0; CurrentStreamIdx < streamsCount; CurrentStreamIdx++)
+            {
+                accumulatedLength += _streams[CurrentStreamIdx].Length;
+                if (_position < accumulatedLength)
+                    return;
             }
         }
 
@@ -57,89 +94,66 @@ namespace AssetsTools.NET.IO
                 return CumulativeLength(_streams.Count);
             }
         }
-
-        public readonly bool CloseStreamsOnDispose;
-
-        private bool HasDataLeft()
+        private long ReverseCumulativeLength(int fromIdx)
         {
-            if (_streams.Count == 0)
-            {
-                _position = 0;
-                return false;
-            }
-            if (_position >= Length)
-                return false;
-
-            return true;
-        }
-
-        private bool TryGetFirstStream(out int beginStreamIndex, out Stream? beginStream)
-        {
-            long accumulatedLength = 0;
-            int streamsCount = _streams.Count;
-            for (beginStreamIndex = 0; beginStreamIndex < streamsCount; beginStreamIndex++)
-            {
-                var currLength = _streams[beginStreamIndex].Length;
-                accumulatedLength += currLength;
-                if (_position < accumulatedLength)
-                {
-                    accumulatedLength -= currLength;
-                    beginStream = _streams[beginStreamIndex];
-                    beginStream.Position = _position - accumulatedLength;
-                    return true;
-                }
-            }
-
-            beginStream = null;
-            beginStreamIndex = -1;
-            return false;
-        }
-
-        private bool TryGetNextStream(ref int beginStreamIndex, out Stream? beginStream)
-        {
-            if (beginStreamIndex < _streams.Count - 1)
-            {
-                beginStreamIndex++;
-                beginStream = _streams[beginStreamIndex];
-                beginStream.Position = 0;
-                return true;
-            }
-            beginStream = null;
-            return false;
+            long total = 0;
+            for (int i = _streams.Count - 1; i >= fromIdx; i--)
+                total += _streams[i].Length;
+            return total;
         }
 
         public override int Read(byte[] buffer, int offset, int count)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            StreamExtensions.ThrowIfInvalidBufferSegment(buffer, offset, count);
 
-            if (!HasDataLeft() ||
-                !TryGetFirstStream(out int beginStreamIndex, out Stream? beginStream))
+            if (count == 0)
+                return 0;
+            var streamsCount = _streams.Count;
+            if (CurrentStreamIdx == streamsCount) // no data left
                 return 0;
 
-            int read = beginStream.Read(buffer, offset, count);
-            if (read == 0)
-                return 0;
-
-            int totalRead = read;
-            _position += read;
-
-            while (read < count)
+            Stream currentStream = _streams[CurrentStreamIdx];
+            currentStream.ThrowIfCantRead();
+            var currentStreamPos = _position - CumulativeLength(CurrentStreamIdx);
+            bool isNextStream = true;
+            int totalRead = 0;
+            do
             {
-                if (beginStream.Position >= beginStream.Length &&
-                    !TryGetNextStream(ref beginStreamIndex, out beginStream))
-                    break;
+                while (CurrentStreamIdx != streamsCount && currentStreamPos >= currentStream.Length)
+                {
+                    CurrentStreamIdx++;
+                    currentStream = _streams[CurrentStreamIdx];
+                    currentStream.ThrowIfCantRead();
+                    currentStreamPos = 0;
+                    isNextStream = true;
+                }
+                if (CurrentStreamIdx == streamsCount) // no data left
+                    return totalRead;
 
-                offset += read;
-                count -= read;
+                if (isNextStream)
+                {
+                    isNextStream = false;
+                    currentStream.Position = currentStreamPos;
+                }
 
-                read = beginStream.Read(buffer, offset, count);
-
-                if (read == 0)
-                    break;
-
-                totalRead += read;
+                int read = currentStream.Read(buffer, offset + totalRead, count - totalRead);
                 _position += read;
+                currentStreamPos += read;
+                totalRead += read;
+
+                if (currentStreamPos >= currentStream.Length)
+                {
+                    CurrentStreamIdx++;
+                    currentStream = _streams[CurrentStreamIdx];
+                    currentStream.ThrowIfCantRead();
+                    currentStreamPos = 0;
+                    isNextStream = true;
+                }
+                else if (read == 0)
+                    throw new IOException($"Stream #{CurrentStreamIdx + 1} returned 0 bytes read before reaching its end.");
             }
+            while (count > totalRead);
 
             return totalRead;
         }
@@ -148,33 +162,55 @@ namespace AssetsTools.NET.IO
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
 
-            if (!HasDataLeft() ||
-                !TryGetFirstStream(out int beginStreamIndex, out Stream? beginStream))
+            var count = buffer.Length;
+            if (count == 0)
+                return 0;
+            var streamsCount = _streams.Count;
+            if (CurrentStreamIdx == streamsCount) // no data left
                 return 0;
 
-            int read = beginStream.Read(buffer);
-            if (read == 0)
-                return 0;
-
-            int totalRead = read;
-            int totalToRead = buffer.Length;
-            _position += read;
-
-            while (totalRead < totalToRead)
+            Stream currentStream = _streams[CurrentStreamIdx];
+            currentStream.ThrowIfCantRead();
+            var currentStreamPos = _position - CumulativeLength(CurrentStreamIdx);
+            bool isNextStream = true;
+            int totalRead = 0;
+            do
             {
-                if (beginStream.Position >= beginStream.Length &&
-                    !TryGetNextStream(ref beginStreamIndex, out beginStream))
-                    break;
+                while (CurrentStreamIdx != streamsCount && currentStreamPos >= currentStream.Length) // advance to next stream if needed
+                {
+                    CurrentStreamIdx++;
+                    currentStream = _streams[CurrentStreamIdx];
+                    currentStream.ThrowIfCantRead();
+                    currentStreamPos = 0;
+                    isNextStream = true;
+                }
+                if (CurrentStreamIdx == streamsCount) // no data left
+                    return totalRead;
 
-                buffer = buffer[read..];
-                read = beginStream.Read(buffer);
+                if (isNextStream) // only force stream position if we switched streams
+                {
+                    isNextStream = false;
+                    currentStream.Position = currentStreamPos;
+                }
 
-                if (read == 0)
-                    break;
-
-                totalRead += read;
+                buffer = buffer[totalRead..];
+                int read = currentStream.Read(buffer);
                 _position += read;
+                currentStreamPos += read;
+                totalRead += read;
+
+                if (currentStreamPos >= currentStream.Length) // sync _lastStreamIdx to current _position
+                {
+                    CurrentStreamIdx++;
+                    currentStream = _streams[CurrentStreamIdx];
+                    currentStream.ThrowIfCantRead();
+                    currentStreamPos = 0;
+                    isNextStream = true;
+                }
+                else if (read == 0)
+                    throw new IOException($"Stream #{CurrentStreamIdx + 1} returned 0 bytes read before reaching its end.");
             }
+            while (count > totalRead);
 
             return totalRead;
         }
@@ -192,9 +228,9 @@ namespace AssetsTools.NET.IO
             };
 
             long finalPos = originPos + offset;
-            ArgumentOutOfRangeException.ThrowIfNegative(finalPos, nameof(offset)); // neg pos and overflows
+            ArgumentOutOfRangeException.ThrowIfNegative(finalPos, nameof(offset)); // negative and overflow position
 
-            _position = finalPos;
+            Position = finalPos;
             return finalPos;
         }
 
@@ -221,7 +257,7 @@ namespace AssetsTools.NET.IO
             {
                 if (CloseStreamsOnDispose)
                     foreach (var stream in _streams)
-                        stream.Close();
+                        stream?.Close();
 
                 _streams.Clear();
                 _streams = null;
@@ -229,8 +265,104 @@ namespace AssetsTools.NET.IO
 
             _disposed = true;
         }
+        public readonly bool CloseStreamsOnDispose;
 
+        public override void CopyTo(Stream destination, int bufferSize)
+        {
+            // verify this Stream is not disposed, destination is writable, and bufferSize is valid
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            destination.ThrowIfCantWrite();
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSize, nameof(bufferSize));
 
+            // if there's no data left to copy, return
+            var streamsCount = _streams.Count;
+            if (CurrentStreamIdx == streamsCount)
+                return;
+
+            // loop through base streams
+            long currentStreamPos = _position - CumulativeLength(CurrentStreamIdx);
+            for (; CurrentStreamIdx < streamsCount; CurrentStreamIdx++)
+            {
+                var currentStream = _streams[CurrentStreamIdx];
+
+                // verify base resources are readable
+                currentStream.ThrowIfCantRead();
+
+                // init base resources position
+                currentStream.Position = currentStreamPos;
+
+                // delegate copy
+                currentStream.CopyTo(destination, bufferSize);
+
+                // update this Stream position
+                _position -= currentStreamPos;
+                _position += currentStream.Length;
+                currentStreamPos = 0;
+            }
+        }
+
+        /// <inheritdoc cref="CopyToExactly(Stream, long, int)"/>
+        public void CopyToExactly(Stream destination, long copySize) =>
+            CopyToExactly(destination, copySize, StreamExtensions.GetCopyBufferSize(this));
+        public void CopyToExactly(Stream destination, long copySize, int bufferSize)
+        {
+            // verify this Stream is not disposed, destination is writable, and bufferSize is valid
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            destination.ThrowIfCantWrite();
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSize, nameof(bufferSize));
+
+            // verify copySize is valid
+            ArgumentOutOfRangeException.ThrowIfNegative(copySize, nameof(copySize));
+
+            // if copy request if of size 0, return
+            if (copySize == 0)
+                return;
+
+            // verify enough data is available to copy
+            var streamsCount = _streams.Count;
+            var firstLengths = CumulativeLength(CurrentStreamIdx);
+            var lastLengths = ReverseCumulativeLength(CurrentStreamIdx);
+            var criticalPos = firstLengths + lastLengths - copySize;
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(_position, criticalPos, nameof(copySize));
+
+            // loop through base streams
+            long currentStreamPos = _position - firstLengths;
+            while (CurrentStreamIdx < streamsCount && copySize > 0)
+            {
+                var currentStream = _streams[CurrentStreamIdx];
+
+                // verify base resources are readable
+                currentStream.ThrowIfCantRead();
+
+                var currentStreamLength = currentStream.Length;
+                if (currentStreamLength > 0)
+                {
+                    // init base resources position
+                    currentStream.Position = currentStreamPos;
+
+                    // delegate copy based of remaining copySize
+                    var posMaxAdvance = currentStreamLength - currentStreamPos;
+                    if (posMaxAdvance <= copySize)
+                    {
+                        if (copySize < bufferSize) // fix buffer size if too big
+                            bufferSize = (int)copySize;
+                        currentStream.CopyTo(destination, bufferSize);
+                    }
+                    else
+                    {
+                        posMaxAdvance = copySize;
+                        StreamExtensions.CopyToExactly(currentStream, destination, copySize, bufferSize);
+                    }
+
+                    // update this Stream position
+                    _position += posMaxAdvance;
+                    copySize -= posMaxAdvance;
+                }
+
+                currentStreamPos = 0;
+                CurrentStreamIdx++;
+            }
+        }
 
         public int Count
         {
@@ -251,25 +383,42 @@ namespace AssetsTools.NET.IO
             set
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                value.ThrowIfCantSeek();
-                _streams[index] = value; // should fix Position?
+                ArgumentOutOfRangeException.ThrowIfNegative(index, nameof(index));
+                ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, _streams.Count, nameof(index));
+                value.ThrowIfCantRead();
+
+                if (index == CurrentStreamIdx)
+                {
+                    _position = CumulativeLength(index);
+                }
+                else if (index < CurrentStreamIdx)
+                {
+                    _position -= _streams[index].Length;
+                    _position += value.Length;
+                }
+
+                _streams[index] = value;
             }
         }
         public void Add(Stream item)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            item.ThrowIfCantSeek();
+            item.ThrowIfCantRead();
+            var update = CurrentStreamIdx == _streams.Count;
             _streams.Add(item);
+            if (update)
+                UpdateCurrentStreamIdx();
         }
         public void Clear()
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            _streams.Clear();
+            _streams?.Clear();
             _position = 0;
+            CurrentStreamIdx = 0;
         }
         public bool Contains(Stream item)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_disposed)
+                return false;
             return _streams.Contains(item);
         }
         public void CopyTo(Stream[] array, int arrayIndex)
@@ -279,17 +428,36 @@ namespace AssetsTools.NET.IO
         }
         public int IndexOf(Stream item)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_disposed)
+                return -1;
             return _streams.IndexOf(item);
         }
         public void Insert(int index, Stream item)
         {
+            var streamsCount = _streams.Count;
+            if (index == streamsCount)
+            {
+                Add(item);
+                return;
+            }
+
             ObjectDisposedException.ThrowIf(_disposed, this);
-            item.ThrowIfCantSeek();
-            _streams.Insert(index, item); //should fix Position?
+            ArgumentOutOfRangeException.ThrowIfNegative(index, nameof(index));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(index, streamsCount, nameof(index));
+            item.ThrowIfCantRead();
+
+            if (index <= CurrentStreamIdx)
+            {
+                _position += item.Length;
+                CurrentStreamIdx++;
+            }
+
+            _streams.Insert(index, item);
         }
         public bool Remove(Stream item)
         {
+            if (_disposed)
+                return false;
             int index = IndexOf(item);
             if (index >= 0)
             {
@@ -301,17 +469,17 @@ namespace AssetsTools.NET.IO
         public void RemoveAt(int index)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            ArgumentOutOfRangeException.ThrowIfLessThan(index, 0, nameof(index));
-            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, _streams.Count);
+            ArgumentOutOfRangeException.ThrowIfNegative(index, nameof(index));
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, _streams.Count, nameof(index));
             
-            var safeLength = CumulativeLength(index);
-            if (_position > safeLength)
+            if (index == CurrentStreamIdx)
             {
-                var item = _streams[index];
-                if (_position < safeLength + item.Length)
-                    _position = safeLength;
-                else
-                    _position -= item.Length;
+                _position = CumulativeLength(index);
+            }
+            else if (index < CurrentStreamIdx)
+            {
+                _position -= _streams[index].Length;
+                CurrentStreamIdx--;
             }
 
             _streams.RemoveAt(index);

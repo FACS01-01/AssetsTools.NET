@@ -58,12 +58,12 @@ namespace AssetsTools.NET
         {
             get
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
+                ObjectDisposedException.ThrowIf(!CanSeek, this);
                 return _position;
             }
             set
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
+                ObjectDisposedException.ThrowIf(!CanSeek, this);
                 if (_position == value)
                     return;
                 if (value > long.MaxValue - BaseOffset)
@@ -79,7 +79,7 @@ namespace AssetsTools.NET
         {
             get
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
+                ObjectDisposedException.ThrowIf(!CanSeek, this);
                 return _length >= 0 ? _length : _baseStream.Length - BaseOffset;
             }
         }
@@ -89,14 +89,17 @@ namespace AssetsTools.NET
 
         public override void Flush()
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(!CanSeek, this);
             _baseStream.Flush();
         }
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(!CanRead, this);
+            StreamExtensions.ThrowIfInvalidBufferSegment(buffer, offset, count);
 
+            if (count == 0)
+                return 0;
             long remaining = Length - _position;
             if (remaining <= 0)
                 return 0;
@@ -111,8 +114,10 @@ namespace AssetsTools.NET
         }
         public override int Read(Span<byte> buffer)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(!CanRead, this);
 
+            if (buffer.Length == 0)
+                return 0;
             long remaining = Length - _position;
             if (remaining <= 0)
                 return 0;
@@ -150,10 +155,9 @@ namespace AssetsTools.NET
 
         public override void Write(byte[] buffer, int offset, int count)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            ThrowIfCantWrite();
-
-            ArgumentOutOfRangeException.ThrowIfNegative(count, nameof(count));
+            ObjectDisposedException.ThrowIf(!CanWrite, this);
+            StreamExtensions.ThrowIfInvalidBufferSegment(buffer, offset, count);
+            
             if (count == 0)
                 return;
 
@@ -165,8 +169,7 @@ namespace AssetsTools.NET
         }
         public override void Write(ReadOnlySpan<byte> buffer)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            ThrowIfCantWrite();
+            ObjectDisposedException.ThrowIf(!CanWrite, this);
 
             var bufferLength = buffer.Length;
             if (bufferLength == 0)
@@ -181,7 +184,7 @@ namespace AssetsTools.NET
 
         public override bool CanRead => !_disposed && _baseStream.CanRead;
 
-        public override bool CanSeek => !_disposed;
+        public override bool CanSeek => !_disposed && _baseStream.CanSeek;
 
         private readonly bool _canWrite;
         public override bool CanWrite => !_disposed && _canWrite && _baseStream.CanWrite;
@@ -196,8 +199,7 @@ namespace AssetsTools.NET
             {
                 if (CloseBaseOnDispose)
                     _baseStream.Close();
-                if (_baseStream is not MemoryStream) // Don't set to null - allow TryGetBuffer to work
-                    _baseStream = null;
+                _baseStream = null;
             }
 
             _disposed = true;
@@ -207,8 +209,7 @@ namespace AssetsTools.NET
             if (_disposed)
                 return;
 
-            if (_baseStream is not MemoryStream) // Don't set to null - allow TryGetBuffer to work
-                _baseStream = null;
+            _baseStream = null;
 
             _disposed = true;
         }
@@ -216,7 +217,7 @@ namespace AssetsTools.NET
         public override void CopyTo(Stream destination, int bufferSize)
         {
             // verify this Stream is not disposed, destination is writable, and bufferSize is valid
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(!CanRead, this);
             destination.ThrowIfCantWrite();
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSize, nameof(bufferSize));
 
@@ -226,7 +227,7 @@ namespace AssetsTools.NET
                 return;
 
             // verify base resources are readable
-            _baseStream.ThrowIfCantRead();
+            //   done with ThrowIf(!CanRead) above
 
             // init base resources position
             _baseStream.Position = BaseOffset + _position;
@@ -246,14 +247,14 @@ namespace AssetsTools.NET
             _position = length;
         }
 
-        /// <inheritdoc cref="SegmentStream.CopyToExactly(Stream, long, int)"/>
+        /// <inheritdoc cref="CopyToExactly(Stream, long, int)"/>
         public void CopyToExactly(Stream destination, long copySize) =>
             CopyToExactly(destination, copySize, StreamExtensions.GetCopyBufferSize(this));
 
         public void CopyToExactly(Stream destination, long copySize, int bufferSize)
         {
             // verify this Stream is not disposed, destination is writable, and bufferSize is valid
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(!CanRead, this);
             destination.ThrowIfCantWrite();
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSize, nameof(bufferSize));
 
@@ -265,7 +266,7 @@ namespace AssetsTools.NET
                 return;
 
             // verify base resources are readable
-            _baseStream.ThrowIfCantRead();
+            //   done with ThrowIf(!CanRead) above
 
             // verify enough data is available to copy
             var criticalPos = Length - copySize;
@@ -302,11 +303,6 @@ namespace AssetsTools.NET
             return true;
         }
 
-        private void ThrowIfCantWrite()
-        {
-            if (!CanWrite)
-                throw new NotSupportedException("Can't write to this stream.");
-        }
         private void ThrowIfWriteOverflow(int count, in string _nameof)
         {
             if (_length >= 0 && count > _length - _position)
@@ -314,7 +310,8 @@ namespace AssetsTools.NET
         }
 
         /// <summary>
-        /// Merges adjacent compatible <see cref="SegmentStream"/> instances within <paramref name="streams"/> into single, larger <see cref="SegmentStream"/> objects.
+        /// Merges adjacent compatible <see cref="SegmentStream"/> instances within <paramref name="streams"/> into single,
+        /// larger <see cref="SegmentStream"/> objects.
         /// </summary>
         /// <param name="streams">The list of streams to process.</param>
         public static void JoinSegmentStreams(List<Stream> streams)
