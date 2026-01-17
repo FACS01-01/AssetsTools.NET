@@ -1,6 +1,5 @@
 ﻿using AssetsTools.NET.Standard.Codecs;
 using System;
-using System.Buffers;
 using System.IO;
 
 namespace AssetsTools.NET.Standard.IO.Extensions
@@ -114,7 +113,7 @@ namespace AssetsTools.NET.Standard.IO.Extensions
         /// Try get the <paramref name="stream"/>'s internal buffer, starting at its current Position,
         /// and advancing it by <paramref name="accessSize"/>.
         /// </summary>
-        public static bool TryReadBuffer(this Stream stream, long accessSize, out ReadOnlySpan<byte> buffer)
+        public static bool TryReadBuffer(this Stream stream, int accessSize, out ReadOnlySpan<byte> buffer)
         {
             ThrowIfCantRead(stream);
             ArgumentOutOfRangeException.ThrowIfNegative(accessSize, nameof(accessSize));
@@ -127,37 +126,56 @@ namespace AssetsTools.NET.Standard.IO.Extensions
             return TryReadBuffer_Core(stream, accessSize, out buffer);
         }
 
-        private static bool TryReadBuffer_Core(this Stream stream, long accessSize, out ReadOnlySpan<byte> buffer)
+        public static bool TryGetRemainingBuffer(this Stream stream, out ArraySegment<byte> arrSeg)
         {
-            ArraySegment<byte> arrSeg;
-            long pos;
+            ThrowIfCantRead(stream);
+            long len = stream.Length;
+            long pos = stream.Position;
+            if (pos >= len)
+            {
+                arrSeg = ArraySegment<byte>.Empty;
+                return true;
+            }
+            if (len > int.MaxValue) // too large to expose buffer
+            {
+                arrSeg = default;
+                return false;
+            }
+            if (!TryGetInternalBuffer_Core(stream, out var buffer))
+            {
+                arrSeg = default;
+                return false;
+            }
+            arrSeg = buffer[(int)pos..];
+            return true;
+        }
 
+        internal static bool TryGetInternalBuffer_Core(this Stream stream, out ArraySegment<byte> arrSeg)
+        {
             switch (stream)
             {
                 case MemoryStream ms:
-                    pos = ms.Position;
-                    ArgumentOutOfRangeException.ThrowIfGreaterThan(pos, ms.Length - accessSize, nameof(accessSize));
-                    if (!ms.TryGetBuffer(out arrSeg))
-                    {
-                        buffer = null;
-                        return false;
-                    }
-                    break;
+                    return ms.TryGetBuffer(out arrSeg);
                 case IStreamTryGetBuffer ss:
-                    pos = stream.Position;
-                    ArgumentOutOfRangeException.ThrowIfGreaterThan(pos, stream.Length - accessSize, nameof(accessSize));
-                    if (!ss.TryGetBuffer(out arrSeg))
-                    {
-                        buffer = null;
-                        return false;
-                    }
-                    break;
+                    return ss.TryGetBuffer(out arrSeg);
                 default:
-                    buffer = null;
+                    arrSeg = default;
                     return false;
             }
+        }
 
-            buffer = arrSeg.AsSpan((int)pos, (int)accessSize);
+        internal static bool TryReadBuffer_Core(this Stream stream, int accessSize, out ReadOnlySpan<byte> buffer)
+        {
+            long pos = stream.Position;
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(pos, stream.Length - accessSize, nameof(accessSize));
+
+            if (!stream.TryGetInternalBuffer_Core(out var arrSeg))
+            {
+                buffer = null;
+                return false;
+            }
+
+            buffer = arrSeg.AsSpan((int)pos, accessSize);
             stream.Position += accessSize;
             return true;
         }
@@ -166,6 +184,11 @@ namespace AssetsTools.NET.Standard.IO.Extensions
         {
             ThrowIfCantRead(stream);
 
+            return WriteExactly_Core(target, stream);
+        }
+
+        internal static Span<byte> WriteExactly_Core(this Span<byte> target, Stream stream)
+        {
             stream.ReadExactly(target);
             return target;
         }

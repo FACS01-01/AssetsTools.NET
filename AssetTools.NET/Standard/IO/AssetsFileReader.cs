@@ -1,136 +1,248 @@
-﻿using System.IO;
-using System.Linq;
+﻿using AssetsTools.NET.Standard.IO;
+using AssetsTools.NET.Standard.IO.Extensions;
+using System;
+using System.Buffers.Binary;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace AssetsTools.NET
 {
     public class AssetsFileReader : BinaryReader
     {
-        public bool BigEndian { get; set; } = false;
+        public bool BigEndian { get; set; } = !BitConverter.IsLittleEndian;
 
-        public AssetsFileReader(string filePath)
-            : base(File.OpenRead(filePath))
+        public AssetsFileReader(string filePath, bool leaveOpen = false)
+            : base(File.OpenRead(filePath), Encoding.UTF8, leaveOpen)
         {
         }
 
-        public AssetsFileReader(Stream stream)
-            : base(stream)
+        public AssetsFileReader(Stream stream, bool leaveOpen = false)
+            : base(stream, Encoding.UTF8, leaveOpen)
         {
         }
 
+        [SkipLocalsInit]
         public override short ReadInt16()
         {
-            unchecked
-            {
-                return BigEndian ? (short)ReverseShort((ushort)base.ReadInt16()) : base.ReadInt16();
-            }
+            BaseStream.ThrowIfCantRead();
+
+            ReadOnlySpan<byte> buffer = BaseStream.TryReadBuffer_Core(sizeof(short), out ReadOnlySpan<byte> buff) ?
+                buff :
+                (stackalloc byte[sizeof(short)]).WriteExactly_Core(BaseStream);
+
+            var castedVal = MemoryMarshal.Read<short>(buffer);
+            if (BigEndian == BitConverter.IsLittleEndian)
+                castedVal = BinaryPrimitives.ReverseEndianness(castedVal);
+
+            return castedVal;
         }
+        [SkipLocalsInit]
         public override ushort ReadUInt16()
         {
-            unchecked
-            {
-                return BigEndian ? ReverseShort(base.ReadUInt16()) : base.ReadUInt16();
-            }
+            BaseStream.ThrowIfCantRead();
+
+            ReadOnlySpan<byte> buffer = BaseStream.TryReadBuffer_Core(sizeof(ushort), out ReadOnlySpan<byte> buff) ?
+                buff :
+                (stackalloc byte[sizeof(ushort)]).WriteExactly_Core(BaseStream);
+
+            var castedVal = MemoryMarshal.Read<ushort>(buffer);
+            if (BigEndian == BitConverter.IsLittleEndian)
+                castedVal = BinaryPrimitives.ReverseEndianness(castedVal);
+
+            return castedVal;
         }
+        [SkipLocalsInit]
         public int ReadInt24()
         {
-            unchecked
+            Span<byte> intBuffer = stackalloc byte[sizeof(int)];
+            if (BitConverter.IsLittleEndian)
             {
-                return BigEndian ? (int)ReverseInt((uint)System.BitConverter.ToInt32(ReadBytes(3).Concat(new byte[] { 0 }).ToArray(), 0)) :
-                    System.BitConverter.ToInt32(ReadBytes(3).Concat(new byte[] { 0 }).ToArray(), 0);
+                if (BaseStream.TryReadBuffer_Core(3, out ReadOnlySpan<byte> buff))
+                    buff.CopyTo(intBuffer);
+                else intBuffer[..3].WriteExactly_Core(BaseStream);
+                intBuffer[3] = ((intBuffer[2] & 128) != 0) ? byte.MaxValue : byte.MinValue; // higher bit, sign extend
             }
+            else
+            {
+                if (BaseStream.TryReadBuffer_Core(3, out ReadOnlySpan<byte> buff))
+                    buff.CopyTo(intBuffer[1..]);
+                else intBuffer[1..].WriteExactly_Core(BaseStream);
+                intBuffer[0] = ((intBuffer[1] & 128) != 0) ? byte.MaxValue : byte.MinValue; // higher bit, sign extend
+            }
+
+            var castedVal = MemoryMarshal.Read<int>(intBuffer);
+            if (BigEndian == BitConverter.IsLittleEndian)
+                castedVal = BinaryPrimitives.ReverseEndianness(castedVal);
+
+            return castedVal;
         }
+        [SkipLocalsInit]
         public uint ReadUInt24()
         {
-            unchecked
+            Span<byte> intBuffer = stackalloc byte[sizeof(uint)];
+            if (BitConverter.IsLittleEndian)
             {
-                return BigEndian ? ReverseInt(System.BitConverter.ToUInt32(new byte[] { 0 }.Concat(ReadBytes(3)).ToArray(), 0)) :
-                    System.BitConverter.ToUInt32(ReadBytes(3).Concat(new byte[] { 0 }).ToArray(), 0);
+                if (BaseStream.TryReadBuffer_Core(3, out ReadOnlySpan<byte> buff))
+                    buff.CopyTo(intBuffer);
+                else intBuffer[..3].WriteExactly_Core(BaseStream);
+                intBuffer[3] = ((intBuffer[2] & 128) != 0) ? byte.MaxValue : byte.MinValue;
             }
+            else
+            {
+                if (BaseStream.TryReadBuffer_Core(3, out ReadOnlySpan<byte> buff))
+                    buff.CopyTo(intBuffer[1..]);
+                else intBuffer[1..].WriteExactly_Core(BaseStream);
+                intBuffer[0] = ((intBuffer[1] & 128) != 0) ? byte.MaxValue : byte.MinValue;
+            }
+
+            var castedVal = MemoryMarshal.Read<uint>(intBuffer);
+            if (BigEndian == BitConverter.IsLittleEndian)
+                castedVal = BinaryPrimitives.ReverseEndianness(castedVal);
+
+            return castedVal;
         }
+        [SkipLocalsInit]
         public override int ReadInt32()
         {
-            unchecked
-            {
-                return BigEndian ? (int)ReverseInt((uint)base.ReadInt32()) : base.ReadInt32();
-            }
+            BaseStream.ThrowIfCantRead();
+
+            ReadOnlySpan<byte> buffer = BaseStream.TryReadBuffer_Core(sizeof(int), out ReadOnlySpan<byte> buff) ?
+                buff :
+                (stackalloc byte[sizeof(int)]).WriteExactly_Core(BaseStream);
+
+            var castedVal = MemoryMarshal.Read<int>(buffer);
+            if (BigEndian == BitConverter.IsLittleEndian)
+                castedVal = BinaryPrimitives.ReverseEndianness(castedVal);
+
+            return castedVal;
         }
+        [SkipLocalsInit]
         public override uint ReadUInt32()
         {
-            unchecked
-            {
-                return BigEndian ? ReverseInt(base.ReadUInt32()) : base.ReadUInt32();
-            }
+            BaseStream.ThrowIfCantRead();
+
+            ReadOnlySpan<byte> buffer = BaseStream.TryReadBuffer_Core(sizeof(uint), out ReadOnlySpan<byte> buff) ?
+                buff :
+                (stackalloc byte[sizeof(uint)]).WriteExactly_Core(BaseStream);
+
+            var castedVal = MemoryMarshal.Read<uint>(buffer);
+            if (BigEndian == BitConverter.IsLittleEndian)
+                castedVal = BinaryPrimitives.ReverseEndianness(castedVal);
+
+            return castedVal;
         }
+        [SkipLocalsInit]
         public override long ReadInt64()
         {
-            unchecked
-            {
-                return BigEndian ? (long)ReverseLong((ulong)base.ReadInt64()) : base.ReadInt64();
-            }
+            BaseStream.ThrowIfCantRead();
+
+            ReadOnlySpan<byte> buffer = BaseStream.TryReadBuffer_Core(sizeof(long), out ReadOnlySpan<byte> buff) ?
+                buff :
+                (stackalloc byte[sizeof(long)]).WriteExactly_Core(BaseStream);
+
+            var castedVal = MemoryMarshal.Read<long>(buffer);
+            if (BigEndian == BitConverter.IsLittleEndian)
+                castedVal = BinaryPrimitives.ReverseEndianness(castedVal);
+
+            return castedVal;
         }
+        [SkipLocalsInit]
         public override ulong ReadUInt64()
         {
-            unchecked
-            {
-                return BigEndian ? ReverseLong(base.ReadUInt64()) : base.ReadUInt64();
-            }
+            BaseStream.ThrowIfCantRead();
+
+            ReadOnlySpan<byte> buffer = BaseStream.TryReadBuffer_Core(sizeof(ulong), out ReadOnlySpan<byte> buff) ?
+                buff :
+                (stackalloc byte[sizeof(ulong)]).WriteExactly_Core(BaseStream);
+
+            var castedVal = MemoryMarshal.Read<ulong>(buffer);
+            if (BigEndian == BitConverter.IsLittleEndian)
+                castedVal = BinaryPrimitives.ReverseEndianness(castedVal);
+
+            return castedVal;
         }
-        public ushort ReverseShort(ushort value)
+
+        public void Align() => AlignTo(4);
+        public void Align8() => AlignTo(8);
+        public void Align16() => AlignTo(16);
+        private void AlignTo(int alignment) // Alignment must be a power of 2!!!
         {
-            return (ushort)(((value & 0xFF00) >> 8) | (value & 0x00FF) << 8);
+            BaseStream.ThrowIfCantSeek();
+
+            long position = BaseStream.Position;
+            long mask = alignment - 1L;
+            long aligned = (position + mask) & ~mask;
+
+            if (position != aligned)
+                BaseStream.Position = aligned;
         }
-        public uint ReverseInt(uint value)
-        {
-            value = (value >> 16) | (value << 16);
-            return ((value & 0xFF00FF00) >> 8) | ((value & 0x00FF00FF) << 8);
-        }
-        public ulong ReverseLong(ulong value)
-        {
-            value = (value >> 32) | (value << 32);
-            value = ((value & 0xFFFF0000FFFF0000) >> 16) | ((value & 0x0000FFFF0000FFFF) << 16);
-            return ((value & 0xFF00FF00FF00FF00) >> 8) | ((value & 0x00FF00FF00FF00FF) << 8);
-        }
-        public void Align()
-        {
-            long pad = 4 - (BaseStream.Position % 4);
-            if (pad != 4) BaseStream.Position += pad;
-        }
-        public void Align8()
-        {
-            long pad = 8 - (BaseStream.Position % 8);
-            if (pad != 8) BaseStream.Position += pad;
-        }
-        public void Align16()
-        {
-            long pad = 16 - (BaseStream.Position % 16);
-            if (pad != 16) BaseStream.Position += pad;
-        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static string GetUTF8String(ReadOnlySpan<byte> bytes) => Encoding.UTF8.GetString(bytes);
         public string ReadStringLength(int len)
         {
-            return Encoding.UTF8.GetString(ReadBytes(len));
+            if (BaseStream.TryReadBuffer(len, out var buffer))
+                return GetUTF8String(buffer);
+
+            return TempBuffer.RunBufferedAction(len, BaseStream, static (stream, tempBuffer) =>
+            {
+                stream.ReadExactly(tempBuffer);
+                return GetUTF8String(tempBuffer);
+            });
         }
         public string ReadNullTerminated()
         {
-            MemoryStream ms = new MemoryStream();
-            byte curByte;
-            while ((curByte = ReadByte()) != 0)
+            if (BaseStream.TryGetRemainingBuffer(out var buffer))
             {
-                ms.WriteByte(curByte);
+                ReadOnlySpan<byte> bufferSpan = buffer;
+                int idx = bufferSpan.IndexOf(byte.MinValue);
+                if (idx == -1)
+                    throw new IOException("Null terminator not found in the remaining stream buffer.");
+                BaseStream.Position += idx + 1;
+                return GetUTF8String(buffer.Slice(0, idx));
             }
 
-            return Encoding.UTF8.GetString(ms.ToArray());
+            return ReadNullTerminatedSlow();
+        }
+        [SkipLocalsInit]
+        private string ReadNullTerminatedSlow()
+        {
+            using var collector = new TempBuffer.ByteCollector(256);
+            Span<byte> readBuffer = stackalloc byte[64];
+
+            while (true)
+            {
+                int read = BaseStream.Read(readBuffer);
+                if (read == 0)
+                    throw new IOException("Null terminator not found in the remaining stream.");
+
+                int nullIdx = readBuffer[..read].IndexOf(byte.MinValue);
+                if (nullIdx >= 0)
+                {
+                    collector.Append(readBuffer[..nullIdx]);
+                    BaseStream.Position -= read - (nullIdx + 1);
+                    break;
+                }
+
+                collector.Append(readBuffer[..read]);
+            }
+
+            return GetUTF8String(collector.AsSpan());
         }
         public static string ReadNullTerminatedArray(byte[] bytes, uint pos)
         {
-            StringBuilder output = new StringBuilder();
-            char curChar;
-            while ((curChar = (char)bytes[pos]) != 0x00)
-            {
-                output.Append(curChar);
-                pos++;
-            }
-            return output.ToString();
+            ArgumentNullException.ThrowIfNull(bytes, nameof(bytes));
+            //ArgumentOutOfRangeException.ThrowIfNegative(pos); // in case pos was int
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(pos, (uint)bytes.Length, nameof(pos));
+            if (pos == bytes.Length)
+                throw new IOException("Null terminator not found in the array.");
+            ReadOnlySpan<byte> span = bytes.AsSpan((int)pos);
+            int idx = span.IndexOf(byte.MinValue);
+            if (idx == -1)
+                throw new IOException("Null terminator not found in the array.");
+            return GetUTF8String(span[..idx]);
         }
         public string ReadCountString()
         {
