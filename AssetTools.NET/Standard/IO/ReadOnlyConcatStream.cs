@@ -13,6 +13,7 @@ namespace AssetsTools.NET.IO
         public ReadOnlyConcatStream(int capacity, bool leaveOpen = true)
         {
             _streams = new(capacity);
+            _cumulativeStreamLengths = new(capacity);
             CloseStreamsOnDispose = !leaveOpen;
         }
 
@@ -64,28 +65,36 @@ namespace AssetsTools.NET.IO
         public void Update()
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            UpdateCumulativeLengths();
             UpdateCurrentStreamIdx();
+        }
+
+        private void UpdateCumulativeLengths()
+        {
+            _cumulativeStreamLengths.Clear();
+            long acumLength = 0;
+            var streamsCount = _streams.Count;
+            for (int i = 0; i < streamsCount; i++)
+            {
+                var stream = _streams[i];
+                acumLength += stream.Length;
+                if (acumLength < 0)
+                    throw new OverflowException($"The accumulated length at index {i} is overflowing.");
+                _cumulativeStreamLengths.Add(acumLength);
+            }
         }
 
         private void UpdateCurrentStreamIdx()
         {
-            long accumulatedLength = 0;
             int streamsCount = _streams.Count;
             for (CurrentStreamIdx = 0; CurrentStreamIdx < streamsCount; CurrentStreamIdx++)
             {
-                accumulatedLength += _streams[CurrentStreamIdx].Length;
-                if (_position < accumulatedLength)
+                if (_position < _cumulativeStreamLengths[CurrentStreamIdx])
                     return;
             }
         }
 
-        private long CumulativeLength(int upToCount)
-        {
-            long total = 0;
-            for (int i = 0; i < upToCount; i++)
-                total += _streams[i].Length;
-            return total;
-        }
+        private List<long>? _cumulativeStreamLengths;
         public override long Length
         {
             get
@@ -94,12 +103,12 @@ namespace AssetsTools.NET.IO
                 return CumulativeLength(_streams.Count);
             }
         }
-        private long ReverseCumulativeLength(int fromIdx)
+        private long CumulativeLength(int upToCount)
         {
-            long total = 0;
-            for (int i = _streams.Count - 1; i >= fromIdx; i--)
-                total += _streams[i].Length;
-            return total;
+            upToCount--;
+            if (upToCount < 0)
+                return 0;
+            return _cumulativeStreamLengths[upToCount];
         }
 
         public override int Read(byte[] buffer, int offset, int count)
@@ -120,7 +129,7 @@ namespace AssetsTools.NET.IO
             int totalRead = 0;
             do
             {
-                while (CurrentStreamIdx != streamsCount && currentStreamPos >= currentStream.Length)
+                while (CurrentStreamIdx != streamsCount && _position >= CumulativeLength(CurrentStreamIdx + 1))
                 {
                     CurrentStreamIdx++;
                     currentStream = _streams[CurrentStreamIdx];
@@ -139,16 +148,18 @@ namespace AssetsTools.NET.IO
 
                 int read = currentStream.Read(buffer, offset + totalRead, count - totalRead);
                 _position += read;
-                currentStreamPos += read;
                 totalRead += read;
 
-                if (currentStreamPos >= currentStream.Length)
+                if (_position >= CumulativeLength(CurrentStreamIdx + 1))
                 {
                     CurrentStreamIdx++;
-                    currentStream = _streams[CurrentStreamIdx];
-                    currentStream.ThrowIfCantRead();
-                    currentStreamPos = 0;
-                    isNextStream = true;
+                    if (count > totalRead)
+                    {
+                        currentStream = _streams[CurrentStreamIdx];
+                        currentStream.ThrowIfCantRead();
+                        currentStreamPos = 0;
+                        isNextStream = true;
+                    }
                 }
                 else if (read == 0)
                     throw new IOException($"Stream #{CurrentStreamIdx + 1} returned 0 bytes read before reaching its end.");
@@ -176,7 +187,7 @@ namespace AssetsTools.NET.IO
             int totalRead = 0;
             do
             {
-                while (CurrentStreamIdx != streamsCount && currentStreamPos >= currentStream.Length) // advance to next stream if needed
+                while (CurrentStreamIdx != streamsCount && _position >= CumulativeLength(CurrentStreamIdx + 1)) // advance to next stream if needed
                 {
                     CurrentStreamIdx++;
                     currentStream = _streams[CurrentStreamIdx];
@@ -196,16 +207,19 @@ namespace AssetsTools.NET.IO
                 buffer = buffer[totalRead..];
                 int read = currentStream.Read(buffer);
                 _position += read;
-                currentStreamPos += read;
                 totalRead += read;
 
-                if (currentStreamPos >= currentStream.Length) // sync _lastStreamIdx to current _position
+                if (_position >= CumulativeLength(CurrentStreamIdx + 1)) // sync _lastStreamIdx to current _position
                 {
                     CurrentStreamIdx++;
-                    currentStream = _streams[CurrentStreamIdx];
-                    currentStream.ThrowIfCantRead();
-                    currentStreamPos = 0;
-                    isNextStream = true;
+                    if (count > totalRead)
+                    {
+                        currentStream = _streams[CurrentStreamIdx];
+                        currentStream.ThrowIfCantRead();
+                        currentStreamPos = 0;
+                        isNextStream = true;
+                    }
+                    
                 }
                 else if (read == 0)
                     throw new IOException($"Stream #{CurrentStreamIdx + 1} returned 0 bytes read before reaching its end.");
@@ -261,6 +275,8 @@ namespace AssetsTools.NET.IO
 
                 _streams.Clear();
                 _streams = null;
+                _cumulativeStreamLengths.Clear();
+                _cumulativeStreamLengths = null;
             }
 
             _disposed = true;
@@ -288,15 +304,18 @@ namespace AssetsTools.NET.IO
                 // verify base resources are readable
                 currentStream.ThrowIfCantRead();
 
-                // init base resources position
-                currentStream.Position = currentStreamPos;
-
-                // delegate copy
-                currentStream.CopyTo(destination, bufferSize);
+                // verify if there's data left to copy in current stream
+                var nextAcumLength = CumulativeLength(CurrentStreamIdx + 1);
+                if (_position < nextAcumLength)
+                {
+                    // init base resources position
+                    currentStream.Position = currentStreamPos;
+                    // delegate copy
+                    currentStream.CopyTo(destination, bufferSize);
+                }
 
                 // update this Stream position
-                _position -= currentStreamPos;
-                _position += currentStream.Length;
+                _position = nextAcumLength;
                 currentStreamPos = 0;
             }
         }
@@ -320,13 +339,11 @@ namespace AssetsTools.NET.IO
 
             // verify enough data is available to copy
             var streamsCount = _streams.Count;
-            var firstLengths = CumulativeLength(CurrentStreamIdx);
-            var lastLengths = ReverseCumulativeLength(CurrentStreamIdx);
-            var criticalPos = firstLengths + lastLengths - copySize;
+            var criticalPos = CumulativeLength(streamsCount) - copySize;
             ArgumentOutOfRangeException.ThrowIfGreaterThan(_position, criticalPos, nameof(copySize));
 
             // loop through base streams
-            long currentStreamPos = _position - firstLengths;
+            long currentStreamPos = _position - CumulativeLength(CurrentStreamIdx);
             while (CurrentStreamIdx < streamsCount && copySize > 0)
             {
                 var currentStream = _streams[CurrentStreamIdx];
@@ -334,14 +351,14 @@ namespace AssetsTools.NET.IO
                 // verify base resources are readable
                 currentStream.ThrowIfCantRead();
 
-                var currentStreamLength = currentStream.Length;
-                if (currentStreamLength > 0)
+                var nextAcumLength = CumulativeLength(CurrentStreamIdx + 1);
+                if (_position < nextAcumLength)
                 {
                     // init base resources position
                     currentStream.Position = currentStreamPos;
 
                     // delegate copy based of remaining copySize
-                    var posMaxAdvance = currentStreamLength - currentStreamPos;
+                    var posMaxAdvance = nextAcumLength - _position;
                     if (posMaxAdvance <= copySize)
                     {
                         if (copySize < bufferSize) // fix buffer size if too big
@@ -359,10 +376,49 @@ namespace AssetsTools.NET.IO
                     copySize -= posMaxAdvance;
                 }
 
+                if (_position >= nextAcumLength)
+                    CurrentStreamIdx++;
                 currentStreamPos = 0;
-                CurrentStreamIdx++;
             }
         }
+
+        public override int ReadByte()
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            var streamsCount = _streams.Count;
+            if (CurrentStreamIdx == streamsCount) // no data left
+                return -1;
+
+            Stream currentStream = _streams[CurrentStreamIdx];
+            currentStream.ThrowIfCantRead();
+            var currentStreamPos = _position - CumulativeLength(CurrentStreamIdx);
+
+            while (CurrentStreamIdx != streamsCount && _position >= CumulativeLength(CurrentStreamIdx + 1)) // advance to next stream if needed
+            {
+                CurrentStreamIdx++;
+                currentStream = _streams[CurrentStreamIdx];
+                currentStream.ThrowIfCantRead();
+                currentStreamPos = 0;
+            }
+            if (CurrentStreamIdx == streamsCount)
+                return -1;
+
+            currentStream.Position = currentStreamPos;
+            var b = currentStream.ReadByte();
+            if (b != -1)
+            {
+                _position += sizeof(byte);
+                currentStreamPos += sizeof(byte);
+
+                if (_position >= CumulativeLength(CurrentStreamIdx + 1))
+                    CurrentStreamIdx++;
+            }
+
+            return b;
+        }
+
+        public override void WriteByte(byte value) => throw new NotImplementedException();
 
         public int Count
         {
@@ -384,18 +440,22 @@ namespace AssetsTools.NET.IO
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
                 ArgumentOutOfRangeException.ThrowIfNegative(index, nameof(index));
-                ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, _streams.Count, nameof(index));
+                var streamsCount = _streams.Count;
+                ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, streamsCount, nameof(index));
                 value.ThrowIfCantRead();
 
-                if (index == CurrentStreamIdx)
-                {
-                    _position = CumulativeLength(index);
-                }
-                else if (index < CurrentStreamIdx)
-                {
-                    _position -= _streams[index].Length;
-                    _position += value.Length;
-                }
+                var oldStreamLength = CumulativeLength(index + 1) - CumulativeLength(index);
+                var newStreamLength = value.Length;
+
+                ArgumentOutOfRangeException.ThrowIfGreaterThan( // check for total Length overflow
+                    _cumulativeStreamLengths[streamsCount - 1] - oldStreamLength, long.MaxValue - newStreamLength, nameof(value));
+
+                var deltaLength = newStreamLength - oldStreamLength;
+                for (int i = index; i < streamsCount; i++)
+                    _cumulativeStreamLengths[i] += deltaLength;
+
+                if (index <= CurrentStreamIdx)
+                    _position = index == CurrentStreamIdx ? CumulativeLength(index) : _position + deltaLength;
 
                 _streams[index] = value;
             }
@@ -404,14 +464,21 @@ namespace AssetsTools.NET.IO
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             item.ThrowIfCantRead();
-            var update = CurrentStreamIdx == _streams.Count;
+
+            var oldStreamsCount = _streams.Count;
+            var newCumulativeLength = oldStreamsCount == 0 ? 0 : _cumulativeStreamLengths[^1];
+            newCumulativeLength += item.Length;
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(newCumulativeLength, long.MaxValue, nameof(item));
+
             _streams.Add(item);
-            if (update)
-                UpdateCurrentStreamIdx();
+            _cumulativeStreamLengths.Add(newCumulativeLength);
+            if (CurrentStreamIdx == oldStreamsCount && _position >= newCumulativeLength)
+                CurrentStreamIdx++;
         }
         public void Clear()
         {
             _streams?.Clear();
+            _cumulativeStreamLengths?.Clear();
             _position = 0;
             CurrentStreamIdx = 0;
         }
@@ -434,8 +501,8 @@ namespace AssetsTools.NET.IO
         }
         public void Insert(int index, Stream item)
         {
-            var streamsCount = _streams.Count;
-            if (index == streamsCount)
+            var oldStreamsCount = _streams.Count;
+            if (index == oldStreamsCount)
             {
                 Add(item);
                 return;
@@ -443,12 +510,21 @@ namespace AssetsTools.NET.IO
 
             ObjectDisposedException.ThrowIf(_disposed, this);
             ArgumentOutOfRangeException.ThrowIfNegative(index, nameof(index));
-            ArgumentOutOfRangeException.ThrowIfGreaterThan(index, streamsCount, nameof(index));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(index, oldStreamsCount, nameof(index));
             item.ThrowIfCantRead();
+
+            var itemLength = item.Length;
+            var oldCumulativeLength = _cumulativeStreamLengths[^1];
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(oldCumulativeLength, long.MaxValue - itemLength, nameof(item));
+
+            _cumulativeStreamLengths.Add(oldCumulativeLength + itemLength);
+            for (int i = oldStreamsCount - 1; i >= index; i--)
+                _cumulativeStreamLengths[i + 1] = _cumulativeStreamLengths[i] + itemLength;
+            _cumulativeStreamLengths[index] = (index == 0 ? 0 : _cumulativeStreamLengths[index - 1]) + itemLength;
 
             if (index <= CurrentStreamIdx)
             {
-                _position += item.Length;
+                _position += itemLength;
                 CurrentStreamIdx++;
             }
 
@@ -472,17 +548,22 @@ namespace AssetsTools.NET.IO
             ArgumentOutOfRangeException.ThrowIfNegative(index, nameof(index));
             ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, _streams.Count, nameof(index));
             
+            var itemLength = CumulativeLength(index + 1) - CumulativeLength(index);
+
             if (index == CurrentStreamIdx)
-            {
                 _position = CumulativeLength(index);
-            }
             else if (index < CurrentStreamIdx)
             {
-                _position -= _streams[index].Length;
+                _position -= itemLength;
                 CurrentStreamIdx--;
             }
 
+            var streamsCount = _streams.Count;
+            for (int i = index + 1; i < streamsCount; i++)
+                _cumulativeStreamLengths[i - 1] = _cumulativeStreamLengths[i] - itemLength;
+
             _streams.RemoveAt(index);
+            _cumulativeStreamLengths.RemoveAt(streamsCount - 1);
         }
         public IEnumerator<Stream> GetEnumerator() => Streams.GetEnumerator();
         IEnumerator IEnumerable.GetEnumerator() => Streams.GetEnumerator();

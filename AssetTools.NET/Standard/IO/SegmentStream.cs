@@ -289,6 +289,31 @@ namespace AssetsTools.NET
             _position += copySize;
         }
 
+        public override int ReadByte()
+        {
+            ObjectDisposedException.ThrowIf(!CanRead, this);
+
+            if (_position >= Length)
+                return -1;
+
+            _baseStream.Position = BaseOffset + _position;
+            var b = _baseStream.ReadByte();
+            if (b != -1)
+                _position += sizeof(byte);
+
+            return b;
+        }
+
+        public override void WriteByte(byte value)
+        {
+            ObjectDisposedException.ThrowIf(!CanWrite, this);
+            ThrowIfWriteOverflow(sizeof(byte), nameof(value));
+
+            _baseStream.Position = BaseOffset + _position;
+            _baseStream.WriteByte(value);
+            _position += sizeof(byte);
+        }
+
         public bool TryGetBuffer(out ArraySegment<byte> buffer)
         {
             if (_baseStream == null ||

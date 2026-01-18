@@ -23,7 +23,7 @@ namespace AssetsTools.NET
         {
         }
 
-        [SkipLocalsInit]
+        [SkipLocalsInit] // don't zero-init stackallocs
         public override short ReadInt16()
         {
             BaseStream.ThrowIfCantRead();
@@ -33,7 +33,7 @@ namespace AssetsTools.NET
                 (stackalloc byte[sizeof(short)]).WriteExactly_Core(BaseStream);
 
             var castedVal = MemoryMarshal.Read<short>(buffer);
-            if (BigEndian == BitConverter.IsLittleEndian)
+            if (BigEndian == BitConverter.IsLittleEndian) // reverse if endianness differs
                 castedVal = BinaryPrimitives.ReverseEndianness(castedVal);
 
             return castedVal;
