@@ -56,6 +56,8 @@ namespace AssetsTools.NET
         [SkipLocalsInit]
         public int ReadInt24()
         {
+            BaseStream.ThrowIfCantRead();
+
             Span<byte> intBuffer = stackalloc byte[sizeof(int)];
             if (BitConverter.IsLittleEndian)
             {
@@ -81,6 +83,8 @@ namespace AssetsTools.NET
         [SkipLocalsInit]
         public uint ReadUInt24()
         {
+            BaseStream.ThrowIfCantRead();
+
             Span<byte> intBuffer = stackalloc byte[sizeof(uint)];
             if (BitConverter.IsLittleEndian)
             {
@@ -234,15 +238,24 @@ namespace AssetsTools.NET
         public static string ReadNullTerminatedArray(byte[] bytes, uint pos)
         {
             ArgumentNullException.ThrowIfNull(bytes, nameof(bytes));
+            uint bytesLength = (uint)bytes.Length;
+            if (bytesLength == 0)
+                throw new IOException("Null terminator not found in the (empty) array.");
+
             //ArgumentOutOfRangeException.ThrowIfNegative(pos); // in case pos was int
-            ArgumentOutOfRangeException.ThrowIfGreaterThan(pos, (uint)bytes.Length, nameof(pos));
-            if (pos == bytes.Length)
-                throw new IOException("Null terminator not found in the array.");
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(pos, bytesLength, nameof(pos));
+
+            if (bytes[(int)pos] == byte.MinValue)
+                return string.Empty;
+
             ReadOnlySpan<byte> span = bytes.AsSpan((int)pos);
             int idx = span.IndexOf(byte.MinValue);
-            if (idx == -1)
-                throw new IOException("Null terminator not found in the array.");
-            return GetUTF8String(span[..idx]);
+            return idx switch
+            {
+                -1 => throw new IOException("Null terminator not found in the array."),
+                //0 => string.Empty,
+                _ => GetUTF8String(span[..idx])
+            };
         }
         public string ReadCountString()
         {

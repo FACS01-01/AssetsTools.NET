@@ -1,145 +1,168 @@
-﻿using System;
+﻿using AssetsTools.NET.Standard.IO;
+using AssetsTools.NET.Standard.IO.Extensions;
+using System;
+using System.Buffers.Binary;
 using System.IO;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace AssetsTools.NET
 {
     public class AssetsFileWriter : BinaryWriter
     {
-        public bool BigEndian { get; set; } = false;
+        public bool BigEndian { get; set; } = !BitConverter.IsLittleEndian;
 
-        public AssetsFileWriter(string filePath)
-            : base(File.Open(filePath, FileMode.Create, FileAccess.Write))
+        public AssetsFileWriter(string filePath, bool leaveOpen = false)
+            : base(File.Open(filePath, FileMode.Create, FileAccess.Write), Encoding.UTF8, leaveOpen)
         {
         }
         
-        public AssetsFileWriter(FileStream fileStream)
-            : base(fileStream)
+        public AssetsFileWriter(Stream stream, bool leaveOpen = false)
+            : base(stream, Encoding.UTF8, leaveOpen)
         {
         }
-        
-        public AssetsFileWriter(MemoryStream memoryStream)
-            : base(memoryStream)
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void WriteNoAlloc<T>(T val) where T : unmanaged
         {
+            var bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref val, 1));
+            BaseStream.Write(bytes);
         }
-        
-        public AssetsFileWriter(Stream stream)
-            : base(stream)
-        {
-        }
-        
+
         public override void Write(short val)
         {
-            unchecked
-            {
-                if (BigEndian) base.Write((short)ReverseShort((ushort)val));
-                else base.Write(val);
-            }
+            BaseStream.ThrowIfCantWrite();
+
+            if (BigEndian == BitConverter.IsLittleEndian) // reverse if endianness differs
+                val = BinaryPrimitives.ReverseEndianness(val);
+
+            WriteNoAlloc(val);
         }
         public override void Write(ushort val)
         {
-            unchecked
-            {
-                if (BigEndian) base.Write(ReverseShort(val));
-                else base.Write(val);
-            }
+            BaseStream.ThrowIfCantWrite();
+
+            if (BigEndian == BitConverter.IsLittleEndian)
+                val = BinaryPrimitives.ReverseEndianness(val);
+
+            WriteNoAlloc(val);
         }
         public override void Write(int val)
         {
-            unchecked
-            {
-                if (BigEndian) base.Write((int)ReverseInt((uint)val));
-                else base.Write(val);
-            }
+            BaseStream.ThrowIfCantWrite();
+
+            if (BigEndian == BitConverter.IsLittleEndian)
+                val = BinaryPrimitives.ReverseEndianness(val);
+
+            WriteNoAlloc(val);
         }
         public override void Write(uint val)
         {
-            unchecked
-            {
-                if (BigEndian) base.Write(ReverseInt(val));
-                else base.Write(val);
-            }
+            BaseStream.ThrowIfCantWrite();
+
+            if (BigEndian == BitConverter.IsLittleEndian)
+                val = BinaryPrimitives.ReverseEndianness(val);
+
+            WriteNoAlloc(val);
         }
         public override void Write(long val)
         {
-            unchecked
-            {
-                if (BigEndian) base.Write((long)ReverseLong((ulong)val));
-                else base.Write(val);
-            }
+            BaseStream.ThrowIfCantWrite();
+
+            if (BigEndian == BitConverter.IsLittleEndian)
+                val = BinaryPrimitives.ReverseEndianness(val);
+
+            WriteNoAlloc(val);
         }
         public override void Write(ulong val)
         {
-            unchecked
-            {
-                if (BigEndian) base.Write(ReverseLong(val));
-                else base.Write(val);
-            }
+            BaseStream.ThrowIfCantWrite();
+
+            if (BigEndian == BitConverter.IsLittleEndian)
+                val = BinaryPrimitives.ReverseEndianness(val);
+
+            WriteNoAlloc(val);
         }
         public void WriteRawString(string val)
         {
-            base.Write(Encoding.UTF8.GetBytes(val));
+            BaseStream.ThrowIfCantWrite();
+
+            int byteCount = Encoding.UTF8.GetByteCount(val);
+
+            TempBuffer.RunBufferedAction(byteCount, (val, BaseStream), static (state, span) =>
+            {
+                int bytesWritten = Encoding.UTF8.GetBytes(state.val, span);
+                state.BaseStream.Write(span[..bytesWritten]);
+            });
         }
         public void WriteUInt24(uint val)
         {
-            unchecked
-            {
-                if (BigEndian) base.Write(BitConverter.GetBytes(ReverseInt(val)), 1, 3);
-                else base.Write(BitConverter.GetBytes(val), 0, 3);
-            }
+            BaseStream.ThrowIfCantWrite();
+
+            if (BigEndian == BitConverter.IsLittleEndian)
+                val = BinaryPrimitives.ReverseEndianness(val);
+            var bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref val, 1));
+
+            bytes = BitConverter.IsLittleEndian ? bytes[..3] : bytes.Slice(1, 3);
+
+            BaseStream.Write(bytes);
         }
         public void WriteInt24(int val)
         {
-            unchecked
+            BaseStream.ThrowIfCantWrite();
+
+            if (BigEndian == BitConverter.IsLittleEndian)
+                val = BinaryPrimitives.ReverseEndianness(val);
+            var bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref val, 1));
+
+            bytes = BitConverter.IsLittleEndian ? bytes[..3] : bytes.Slice(1, 3);
+
+            BaseStream.Write(bytes);
+        }
+        public void Align() => AlignTo(4);
+        public void Align8() => AlignTo(8);
+        public void Align16() => AlignTo(16);
+        private static readonly byte[] ZeroPadding = new byte[16];
+        private void AlignTo(int alignment) // Alignment must be a power of 2!!! up to 16
+        {
+            BaseStream.ThrowIfCantWrite();
+
+            long pos = BaseStream.Position;
+            long mask = alignment - 1L;
+            int pad = (int)((-pos) & mask);
+
+            switch (pad)
             {
-                if (BigEndian) base.Write(BitConverter.GetBytes((int)ReverseInt((uint)val)), 1, 3);
-                else base.Write(BitConverter.GetBytes(val), 0, 3);
+                case 0:
+                    return;
+                case 1:
+                    BaseStream.WriteByte(byte.MinValue);
+                    return;
+                default:
+                    BaseStream.Write(ZeroPadding, 0, pad);
+                    return;
             }
-        }
-        public ushort ReverseShort(ushort value)
-        {
-            return (ushort)(((value & 0xFF00) >> 8) | (value & 0x00FF) << 8);
-        }
-        public uint ReverseInt(uint value)
-        {
-            value = (value >> 16) | (value << 16);
-            return ((value & 0xFF00FF00) >> 8) | ((value & 0x00FF00FF) << 8);
-        }
-        public ulong ReverseLong(ulong value)
-        {
-            value = (value >> 32) | (value << 32);
-            value = ((value & 0xFFFF0000FFFF0000) >> 16) | ((value & 0x0000FFFF0000FFFF) << 16);
-            return ((value & 0xFF00FF00FF00FF00) >> 8) | ((value & 0x00FF00FF00FF00FF) << 8);
-        }
-        public void Align()
-        {
-            while (BaseStream.Position % 4 != 0) Write((byte)0x00);
-        }
-        public void Align8()
-        {
-            while (BaseStream.Position % 8 != 0) Write((byte)0x00);
-        }
-        public void Align16()
-        {
-            while (BaseStream.Position % 16 != 0) Write((byte)0x00);
         }
         public void WriteNullTerminated(string text)
         {
             WriteRawString(text);
-            Write((byte)0x00);
+            BaseStream.WriteByte(byte.MinValue);
         }
         public void WriteCountString(string text)
         {
-            if (Encoding.UTF8.GetByteCount(text) > 0xFF)
+            var byteCount = Encoding.UTF8.GetByteCount(text);
+            if (byteCount > byte.MaxValue)
                 new Exception("String is longer than 255! Use the Int32 variant instead!");
-            Write((byte)Encoding.UTF8.GetByteCount(text));
+            BaseStream.WriteByte((byte)byteCount);
             WriteRawString(text);
         }
         public void WriteCountStringInt16(string text)
         {
-            if (Encoding.UTF8.GetByteCount(text) > 0xFFFF)
+            var byteCount = Encoding.UTF8.GetByteCount(text);
+            if (byteCount > ushort.MaxValue)
                 new Exception("String is longer than 65535! Use the Int32 variant instead!");
-            Write((ushort)Encoding.UTF8.GetByteCount(text));
+            Write((ushort)byteCount);
             WriteRawString(text);
         }
         public void WriteCountStringInt32(string text)
@@ -152,6 +175,5 @@ namespace AssetsTools.NET
             get { return BaseStream.Position; }
             set { BaseStream.Position = value; }
         }
-
     }
 }

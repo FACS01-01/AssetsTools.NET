@@ -47,7 +47,7 @@ namespace AssetsTools.NET.IO
         }
 
         /// <summary>
-        /// The index of the stream that contains the current <see cref="Position"/>.
+        /// The stream's index that contains the current <see cref="Position"/>.
         /// </summary>
         /// <remarks>
         /// If <see cref="Position"/> is at the end of the concatenated streams,
@@ -57,11 +57,8 @@ namespace AssetsTools.NET.IO
 
         /// <summary>
         /// Refreshes the <see cref="ReadOnlyConcatStream"/>'s internal state.
-        /// Use in case underlying streams have changed their lengths, and you won't set a new <see cref="Position"/>.
+        /// Use in case underlying streams have changed their lengths.
         /// </summary>
-        /// <remarks>
-        /// It should be okey not to update if only streams after <see cref="CurrentStreamIdx"/> have changed.
-        /// </remarks>
         public void Update()
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
