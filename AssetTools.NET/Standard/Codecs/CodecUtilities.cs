@@ -390,6 +390,8 @@ namespace AssetsTools.NET.Standard.Codecs
             compressedSize = compressStream.Position - compressedSize;
             return compressedSize;
         }
+
+        public static int LZ4MaxCompressedSize(int decompressedDataSize) => LZ4Codec.MaximumOutputSize(decompressedDataSize);
     }
 
     public enum CompressionType : byte
