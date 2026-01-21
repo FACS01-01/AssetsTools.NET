@@ -38,7 +38,7 @@ namespace AssetsTools.NET
             {
                 var len = CodecUtilities.CompressLZ4(input, compressed.AsSpan(0, maxCompressedSize), CompressionType.LZ4);
 
-                var result = new byte[IVSize + sizeof(int) + len + TagSize];
+                var result = GC.AllocateUninitializedArray<byte>(IVSize + sizeof(int) + len + TagSize);
 
                 Span<byte> iv = result.AsSpan(0, IVSize);
                 RandomNumberGenerator.Fill(iv);

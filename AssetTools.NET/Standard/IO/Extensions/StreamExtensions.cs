@@ -193,11 +193,8 @@ namespace AssetsTools.NET.Standard.IO.Extensions
             return target;
         }
 
-        public static MemoryStream NewExposedMemoryStream(int bufferSize, bool writable = true)
-        {
-            byte[] buffer = new byte[bufferSize];
-            return new MemoryStream(buffer, 0, buffer.Length, writable, true);
-        }
+        public static MemoryStream NewExposedMemoryStream(int bufferSize)
+            => new MemoryStream(bufferSize);
 
         public static MemoryStream NewExposedMemoryStream(this ArraySegment<byte> buffer, bool writable = true)
         {

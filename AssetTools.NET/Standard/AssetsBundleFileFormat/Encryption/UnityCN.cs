@@ -18,7 +18,7 @@ namespace AssetsTools.NET
         protected override void VerifyHexKey(string hexString)
         {
             if (hexString.Length != 16 && hexString.Length != 32)
-                throw new ArgumentException("CN key must be 16 or 32 hex chars");
+                throw new ArgumentException("CN key must be 16 or 32 hex chars.");
         }
 
         protected override IDisposable CreateCryptoEngine(byte[] key)

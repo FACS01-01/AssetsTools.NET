@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -6,90 +7,121 @@ namespace AssetsTools.NET
 {
     public abstract class UnityCryptoBase
     {
-        private const string Signature = "#$unity3dchina!@";
+        private const string DefaultSignature = "#$unity3dchina!@";
+        private static readonly byte[] DefaultInfoBytes = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xA6, 0xB1, 0xDE, 0x48, 0x9E, 0x2B, 0x53, 0x5C];
+        private static readonly byte[] DefaultInfoKey = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10];
+        private static readonly byte[] DefaultSignatureBytes = Encoding.UTF8.GetBytes(DefaultSignature);
+        private static readonly byte[] DefaultSignatureKey = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10];
 
-        public uint Value { get; set; }
-        public byte[] InfoBytes { get; protected set; }
-        public byte[] InfoKey { get; protected set; }
-        public byte DummyByte1 { get; set; }
-        public byte[] SignatureBytes { get; protected set; }
-        public byte[] SignatureKey { get; protected set; }
-        public byte DummyByte2 { get; set; }
+        public uint Value;
+        public readonly byte[] InfoBytes = new byte[16];
+        public readonly byte[] InfoKey = new byte[16];
+        public byte DummyByte1;
+        public readonly byte[] SignatureBytes = new byte[16];
+        public readonly byte[] SignatureKey = new byte[16];
+        public byte DummyByte2;
 
         private IDisposable? _cryptoEngine;
         private string _hexKey = string.Empty;
-        private bool _defaultInit = true;
+        private bool _initBytes = false;
 
-        public UnityCryptoBase(AssetsFileReader reader, string hexKey) : this(reader)
-        {
-            SetKey(hexKey);
-        }
-
-        public UnityCryptoBase(AssetsFileReader reader)
+        protected UnityCryptoBase(AssetsFileReader reader)
         {
             Value = reader.ReadUInt32();
-            InfoBytes = reader.ReadBytes(16);
-            InfoKey = reader.ReadBytes(16);
+            reader.ReadExactly(InfoBytes);
+            reader.ReadExactly(InfoKey);
             DummyByte1 = reader.ReadByte();
-            SignatureBytes = reader.ReadBytes(16);
-            SignatureKey = reader.ReadBytes(16);
+            reader.ReadExactly(SignatureBytes);
+            reader.ReadExactly(SignatureKey);
             DummyByte2 = reader.ReadByte();
 
-            _defaultInit = false;
+            _initBytes = true;
         }
 
-        public UnityCryptoBase(string hexKey) : this()
-        {
-            SetKey(hexKey);
-        }
-
-        public UnityCryptoBase()
-        {
-            SetDefaultBytes();
-        }
-
-        public UnityCryptoBase(UnityCryptoBase toCopy)
+        protected UnityCryptoBase(UnityCryptoBase toCopy)
         {
             Value = toCopy.Value;
-            InfoBytes = (byte[])toCopy.InfoBytes.Clone();
-            InfoKey = (byte[])toCopy.InfoKey.Clone();
+            toCopy.InfoBytes.CopyTo(InfoBytes);
+            toCopy.InfoKey.CopyTo(InfoKey);
             DummyByte1 = toCopy.DummyByte1;
-            SignatureBytes = (byte[])toCopy.SignatureBytes.Clone();
-            SignatureKey = (byte[])toCopy.SignatureKey.Clone();
+            toCopy.SignatureBytes.CopyTo(SignatureBytes);
+            toCopy.SignatureKey.CopyTo(SignatureKey);
             DummyByte2 = toCopy.DummyByte2;
 
-            _defaultInit = toCopy._defaultInit;
-
-            var key = toCopy.GetKey();
-            if (!string.IsNullOrEmpty(key))
-                SetKey(key);
+            _initBytes = toCopy._initBytes;
         }
 
-        public void SetKey(string hexString)
-        {
-            if (_cryptoEngine != null)
-            {
-                _cryptoEngine.Dispose();
-                _cryptoEngine = null;
-            }
-
-            VerifyHexKey(hexString); // check if valid length
-            var key = Convert.FromHexString(hexString); // checks if valid hex
-            _cryptoEngine = CreateCryptoEngine(key);
-            _hexKey = hexString;
-            if (_defaultInit)
-            {
-                XorDefaultKey();
-                _defaultInit = false;
-            }
-            InitCryptoEngine();
-        }
-
-        public string GetKey() => _hexKey;
+        protected UnityCryptoBase() { }
 
         ~UnityCryptoBase()
         {
             _cryptoEngine?.Dispose();
+        }
+
+        /// <summary>
+        /// Gets the hexadecimal representation of the key.
+        /// </summary>
+        public string GetKey() => _hexKey;
+
+        /// <summary>
+        /// Sets the cryptographic key using the specified hexadecimal string.
+        /// </summary>
+        public void SetKey(string hexString)
+        {
+            _cryptoEngine?.Dispose();
+            _cryptoEngine = null;
+            var oldKey = _hexKey;
+            try
+            {
+                SetKeyMayThrow(hexString);
+            }
+            catch
+            {
+                _cryptoEngine?.Dispose();
+                _cryptoEngine = null;
+                _hexKey = oldKey;
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to set the cryptographic key using the specified hexadecimal string.
+        /// </summary>
+        /// <remarks>
+        /// If the operation fails, the previous key is restored and any associated cryptographic resources are reset.
+        /// </remarks>
+        /// <returns><see langword="true"/> if the key was set successfully; otherwise, <see langword="false"/>.</returns>
+        public bool TrySetKey(string hexString)
+        {
+            _cryptoEngine?.Dispose();
+            _cryptoEngine = null;
+            var oldKey = _hexKey;
+            try
+            {
+                SetKeyMayThrow(hexString);
+                return true;
+            }
+            catch
+            {
+                _cryptoEngine?.Dispose();
+                _cryptoEngine = null;
+                _hexKey = oldKey;
+                return false;
+            }
+        }
+
+        private void SetKeyMayThrow(string hexString)
+        {
+            VerifyHexKey(hexString); // check if valid length
+            var key = Convert.FromHexString(hexString); // checks if valid hex
+            _cryptoEngine = CreateCryptoEngine(key);
+            _hexKey = hexString;
+            if (!_initBytes)
+            {
+                XorDefaultKey();
+                _initBytes = true;
+            }
+            InitCryptoEngine();
         }
 
         private void XorDefaultKey()
@@ -110,25 +142,136 @@ namespace AssetsTools.NET
             }
         }
 
+        protected void ApplyDefaultBytes()
+        {
+            SetDefaultBytes();
+            _initBytes = false;
+        }
+
+        /// <summary>
+        /// Resets all related byte arrays and associated fields to their default values.
+        /// </summary>
         protected virtual void SetDefaultBytes()
         {
             Value = 0;
-            InfoBytes = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xA6, 0xB1, 0xDE, 0x48, 0x9E, 0x2B, 0x53, 0x5C];
-            InfoKey = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10];
+            DefaultInfoBytes.CopyTo(InfoBytes);
+            DefaultInfoKey.CopyTo(InfoKey);
             DummyByte1 = 0;
-            SignatureBytes = Encoding.UTF8.GetBytes(Signature);
-            SignatureKey = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10];
+            DefaultSignatureBytes.CopyTo(SignatureBytes);
+            DefaultSignatureKey.CopyTo(SignatureKey);
             DummyByte2 = 0;
         }
 
+        /// <summary>
+        /// Initializes the cryptographic engine for use by the current instance.
+        /// </summary>
         protected virtual void InitCryptoEngine() { }
 
+        /// <summary>
+        /// Validates that the specified string has the correct length, and if not, <see langword="throw"/>.
+        /// </summary>
         protected abstract void VerifyHexKey(string hexString);
 
+        /// <summary>
+        /// Creates a new cryptographic engine instance using the specified key.
+        /// </summary>
+        /// <remarks>
+        /// If you need to initialize any additional resources after creating the engine, override <see cref="InitCryptoEngine"/>.
+        /// </remarks>
         protected abstract IDisposable CreateCryptoEngine(byte[] key);
 
+        /// <summary>
+        /// Compresses and encrypts the specified input data block.
+        /// </summary>
+        /// <param name="input">The input data to be compressed and encrypted.</param>
+        /// <param name="blockIdx">The zero-based index of the input data block.</param>
+        /// <returns>A <see langword="byte"/>[] containing the compressed and encrypted representation of the input data.</returns>
         public abstract byte[] CompressAndEncrypt(ReadOnlySpan<byte> input, int blockIdx);
 
+        /// <summary>
+        /// Decrypts and decompresses the specified input data block into the provided output buffer.
+        /// </summary>
+        /// <param name="input">The input data to be decrypted and decompressed.</param>
+        /// <param name="output">The buffer that receives the decrypted and decompressed data.</param>
+        /// <param name="blockIdx">The zero-based index of the input data block.</param>
         public abstract void DecryptAndDecompress(ReadOnlySpan<byte> input, Span<byte> output, int blockIdx);
+
+        /// <summary>
+        /// Instantiate a crypto engine of the specified type, ready to work for the read bundle with known key.
+        /// </summary>
+        /// <param name="cryptoType"></param>
+        /// <param name="reader"></param>
+        /// <param name="key"></param>
+        public static UnityCryptoBase Create(Type cryptoType, AssetsFileReader reader, string key)
+        {
+            ThrowIfNotCryptoType(cryptoType);
+
+            var instance = (UnityCryptoBase)Activator.CreateInstance(cryptoType, reader);
+            instance.SetKey(key);
+            return instance;
+        }
+
+        /// <summary>
+        /// Instantiate a crypto engine of the specified type, ready to work for the read bundle. Needs to set key later.
+        /// </summary>
+        /// <param name="cryptoType"></param>
+        /// <param name="reader"></param>
+        public static UnityCryptoBase Create(Type cryptoType, AssetsFileReader reader)
+        {
+            ThrowIfNotCryptoType(cryptoType);
+
+            var instance = (UnityCryptoBase)Activator.CreateInstance(cryptoType, reader);
+            return instance;
+        }
+
+        /// <summary>
+        /// Instantiate a crypto engine of the specified type, with default byte data to work with any provided key.
+        /// </summary>
+        /// <param name="cryptoType"></param>
+        /// <param name="key"></param>
+        /// <returns></returns>
+        public static UnityCryptoBase Create(Type cryptoType, string key)
+        {
+            ThrowIfNotCryptoType(cryptoType);
+
+            var instance = (UnityCryptoBase)Activator.CreateInstance(cryptoType);
+            instance.ApplyDefaultBytes();
+            instance.SetKey(key);
+            return instance;
+        }
+
+        /// <summary>
+        /// Instantiate a crypto engine of the specified type, with default byte data to work with any provided key.
+        /// </summary>
+        /// <param name="cryptoType"></param>
+        /// <returns></returns>
+        public static UnityCryptoBase Create(Type cryptoType)
+        {
+            ThrowIfNotCryptoType(cryptoType);
+
+            var instance = (UnityCryptoBase)Activator.CreateInstance(cryptoType);
+            instance.ApplyDefaultBytes();
+            return instance;
+        }
+
+        /// <summary>
+        /// Instantiate a crypto engine of the specified type, copying the byte data of an existing crypto engine.
+        /// </summary>
+        /// <param name="cryptoType"></param>
+        /// <param name="toCopy"></param>
+        /// <returns></returns>
+        public static UnityCryptoBase Create(Type cryptoType, UnityCryptoBase toCopy)
+        {
+            ThrowIfNotCryptoType(cryptoType);
+
+            var instance = (UnityCryptoBase)Activator.CreateInstance(cryptoType, toCopy);
+            return instance;
+        }
+
+        private static void ThrowIfNotCryptoType(Type cryptoType)
+        {
+            if (!typeof(UnityCryptoBase).IsAssignableFrom(cryptoType))
+                throw new ArgumentException("Invalid crypto Type.");
+        }
     }
 }
