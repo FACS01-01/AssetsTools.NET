@@ -134,6 +134,8 @@ namespace AssetsTools.NET
 
         public override long Seek(long offset, SeekOrigin origin)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
             long originPos = origin switch
             {
                 SeekOrigin.Begin => 0,

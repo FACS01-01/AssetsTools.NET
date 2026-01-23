@@ -1,5 +1,9 @@
-﻿using System;
+﻿using AssetsTools.NET.Standard.Codecs;
+using AssetsTools.NET.Standard.IO.Extensions;
+using System;
+using System.Buffers;
 using System.Collections.Generic;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -180,6 +184,9 @@ namespace AssetsTools.NET
         /// </remarks>
         protected abstract IDisposable CreateCryptoEngine(byte[] key);
 
+
+
+
         /// <summary>
         /// Compresses and encrypts the specified input data block.
         /// </summary>
@@ -188,13 +195,119 @@ namespace AssetsTools.NET
         /// <returns>A <see langword="byte"/>[] containing the compressed and encrypted representation of the input data.</returns>
         public abstract byte[] CompressAndEncrypt(ReadOnlySpan<byte> input, int blockIdx);
 
-        /// <summary>
-        /// Decrypts and decompresses the specified input data block into the provided output buffer.
-        /// </summary>
-        /// <param name="input">The input data to be decrypted and decompressed.</param>
-        /// <param name="output">The buffer that receives the decrypted and decompressed data.</param>
-        /// <param name="blockIdx">The zero-based index of the input data block.</param>
-        public abstract void DecryptAndDecompress(ReadOnlySpan<byte> input, Span<byte> output, int blockIdx);
+        
+
+        public virtual void DecryptAndDecompress(Stream compressedCipherData, long compressedCipherSize, long plainSize,
+            CompressionType compressionType, Stream plainStream, int blockIdx)
+        {
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(compressedCipherSize, int.MaxValue, nameof(compressedCipherSize));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(plainSize, int.MaxValue, nameof(plainSize));
+            int _compressedCipherSize = (int)compressedCipherSize;
+            int _plainSize = (int)plainSize;
+
+            switch (compressionType)
+            {
+                case CompressionType.None:
+                    Decrypt(compressedCipherData, _compressedCipherSize, _plainSize, plainStream, blockIdx);
+                    break;
+                case CompressionType.LZ4:
+                case CompressionType.LZ4HC:
+                    DecryptAndDecompress(compressedCipherData, _compressedCipherSize, _plainSize, plainStream, blockIdx);
+                    break;
+                default:
+                    throw new NotSupportedException("Unsupported compression type for Unity Encryption.");
+            }
+        }
+
+        protected virtual void Decrypt(Stream cipherData, int cipherSize, int plainSize, Stream plainStream, int blockIdx)
+        {
+            if (plainStream.TryGetRemainingBuffer(out var seg) && seg.Count >= plainSize)
+            {
+                Decrypt(cipherData, cipherSize, seg[..plainSize], blockIdx);
+                plainStream.Position += plainSize;
+                return;
+            }
+
+            var buffer = ArrayPool<byte>.Shared.Rent(plainSize);
+            try
+            {
+                Span<byte> decompressSpan = buffer.AsSpan(0, plainSize);
+                Decrypt(cipherData, cipherSize, decompressSpan, blockIdx);
+                plainStream.Write(decompressSpan);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        protected virtual void Decrypt(Stream cipherData, int cipherSize, Span<byte> plainSpan, int blockIdx)
+        {
+            if (cipherData.TryReadBuffer(cipherSize, out ReadOnlySpan<byte> cipherSpan))
+            {
+                Decrypt(cipherSpan, plainSpan, blockIdx);
+                return;
+            }
+
+            var buffer = ArrayPool<byte>.Shared.Rent(cipherSize);
+            try
+            {
+                var cipherSpan2 = buffer.AsSpan(0, cipherSize);
+                cipherData.ReadExactly(cipherSpan2);
+                Decrypt(cipherSpan2, plainSpan, blockIdx);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        protected abstract void Decrypt(ReadOnlySpan<byte> cipherSpan, Span<byte> plainSpan, int blockIdx);
+
+        protected virtual void DecryptAndDecompress(Stream compressedCipherData, int compressedCipherSize, int plainSize, Stream plainStream, int blockIdx)
+        {
+            if (plainStream.TryGetRemainingBuffer(out var seg) && seg.Count >= plainSize)
+            {
+                DecryptAndDecompress(compressedCipherData, compressedCipherSize, seg[..plainSize], blockIdx);
+                plainStream.Position += plainSize;
+                return;
+            }
+
+            var buffer = ArrayPool<byte>.Shared.Rent(plainSize);
+            try
+            {
+                Span<byte> decompressSpan = buffer.AsSpan(0, plainSize);
+                DecryptAndDecompress(compressedCipherData, compressedCipherSize, decompressSpan, blockIdx);
+                plainStream.Write(decompressSpan);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        protected virtual void DecryptAndDecompress(Stream compressedCipherData, int compressedCipherSize, Span<byte> plainSpan, int blockIdx)
+        {
+            if (compressedCipherData.TryReadBuffer(compressedCipherSize, out ReadOnlySpan<byte> compressedCipherSpan))
+            {
+                DecryptAndDecompress(compressedCipherSpan, plainSpan, blockIdx);
+                return;
+            }
+
+            var buffer = ArrayPool<byte>.Shared.Rent(compressedCipherSize);
+            try
+            {
+                var compressedCipherSpan2 = buffer.AsSpan(0, compressedCipherSize);
+                compressedCipherData.ReadExactly(compressedCipherSpan2);
+                DecryptAndDecompress(compressedCipherSpan2, plainSpan, blockIdx);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        protected abstract void DecryptAndDecompress(ReadOnlySpan<byte> compressedCipherSpan, Span<byte> plainSpan, int blockIdx);
 
         /// <summary>
         /// Instantiate a crypto engine of the specified type, ready to work for the read bundle with known key.

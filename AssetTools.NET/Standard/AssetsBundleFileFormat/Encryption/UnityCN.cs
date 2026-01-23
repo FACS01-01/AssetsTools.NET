@@ -1,5 +1,6 @@
 ﻿using AssetsTools.NET.Standard.Codecs;
 using System;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -52,37 +53,39 @@ namespace AssetsTools.NET
             return compressedData;
         }
 
-        public override void DecryptAndDecompress(ReadOnlySpan<byte> input, Span<byte> output, int blockIdx)
+        protected override void Decrypt(Stream cipherData, int cipherdSize, int plainSize, Stream plainStream, int blockIdx)
+            => throw new NotSupportedException("Decryption without decompression is not supported by UnityCN.");
+        protected override void DecryptAndDecompress(ReadOnlySpan<byte> compressedCipherSpan, Span<byte> plainSpan, int blockIdx)
         {
             int s = 0, d = 0;
 
-            while (s < input.Length)
+            while (s < compressedCipherSpan.Length)
             {
                 int inner = blockIdx;
-                byte token = DecryptByte(input, ref s, ref inner);
+                byte token = DecryptByte(compressedCipherSpan, ref s, ref inner);
 
                 int literal = token >> 4;
                 int match = token & 0xF;
 
                 if (literal == 0xF)
-                    literal += ReadLength(input, ref s, ref inner);
+                    literal += ReadLength(compressedCipherSpan, ref s, ref inner);
 
-                input.Slice(s, literal).CopyTo(output.Slice(d));
+                compressedCipherSpan.Slice(s, literal).CopyTo(plainSpan.Slice(d));
                 s += literal;
                 d += literal;
 
-                if (s == input.Length && match == 0)
+                if (s == compressedCipherSpan.Length && match == 0)
                     break;
 
                 int offset =
-                    DecryptByte(input, ref s, ref inner) |
-                    (DecryptByte(input, ref s, ref inner) << 8);
+                    DecryptByte(compressedCipherSpan, ref s, ref inner) |
+                    (DecryptByte(compressedCipherSpan, ref s, ref inner) << 8);
 
                 if (match == 0xF)
-                    match += ReadLength(input, ref s, ref inner);
+                    match += ReadLength(compressedCipherSpan, ref s, ref inner);
 
                 match += 4;
-                CopyMatch(output, ref d, offset, match);
+                CopyMatch(plainSpan, ref d, offset, match);
                 blockIdx++;
             }
         }

@@ -9,7 +9,7 @@ namespace AssetsTools.NET.Standard.Codecs
 {
     public static class CodecUtilities
     {
-        public static Stream DecompressToNew(Stream compressedData, uint compressedSize, uint decompressedSize,
+        public static Stream DecompressToNew(Stream compressedData, long compressedSize, long decompressedSize,
         CompressionType compressionType, BackingStreamType streamType, bool copyStreamIfUncompressed = true)
         {
             switch (compressionType)
@@ -17,7 +17,7 @@ namespace AssetsTools.NET.Standard.Codecs
                 case CompressionType.None:
                     if (copyStreamIfUncompressed)
                         return compressedData.CopyToNew(compressedSize, streamType);
-                    return new SegmentStream(compressedData, compressedData.Position, compressedSize, false);
+                    return new SegmentStream(compressedData, compressedData.Position, compressedSize);
                 case CompressionType.LZMA:
                     return DecompressLZMAToNew(compressedData, compressedSize, decompressedSize, streamType);
                 case CompressionType.LZ4:
@@ -30,7 +30,7 @@ namespace AssetsTools.NET.Standard.Codecs
             }
         }
 
-        public static void DecompressToStream(Stream compressedData, uint compressedSize, uint decompressedSize,
+        public static void DecompressToStream(Stream compressedData, long compressedSize, long decompressedSize,
         CompressionType compressionType, Stream decompressStream)
         {
             switch (compressionType)
@@ -43,6 +43,8 @@ namespace AssetsTools.NET.Standard.Codecs
                     return;
                 case CompressionType.LZ4:
                 case CompressionType.LZ4HC:
+                    StreamExtensions.ThrowIfSizeBiggerThanMemStream(compressedSize);
+                    StreamExtensions.ThrowIfSizeBiggerThanMemStream(decompressedSize);
                     DecompressLZ4(compressedData, decompressStream, (int)compressedSize, (int)decompressedSize);
                     return;
                 default:
@@ -70,6 +72,13 @@ namespace AssetsTools.NET.Standard.Codecs
 
         public static void DecompressLZ4(Stream compressedData, Stream decompressStream, int compressedSize, int decompressedSize)
         {
+            if (decompressStream.TryGetRemainingBuffer(out var seg) && seg.Count >= decompressedSize)
+            {
+                DecompressLZ4(compressedData, compressedSize, seg[..decompressedSize]);
+                decompressStream.Position += decompressedSize;
+                return;
+            }
+
             var buffer = ArrayPool<byte>.Shared.Rent(decompressedSize);
             try
             {
@@ -158,7 +167,7 @@ namespace AssetsTools.NET.Standard.Codecs
                 case CompressionType.None:
                     if (copyStreamIfUncompressed)
                         return decompressedData.CopyToNew(decompressedSize, streamType);
-                    return new SegmentStream(decompressedData, decompressedData.Position, decompressedSize, false);
+                    return new SegmentStream(decompressedData, decompressedData.Position, decompressedSize);
                 case CompressionType.LZMA:
                     return CompressLZMAToNew(decompressedData, decompressedSize, streamType);
                 case CompressionType.LZ4:
@@ -287,8 +296,8 @@ namespace AssetsTools.NET.Standard.Codecs
                     return true;
                 }
 
-                result = GC.AllocateUninitializedArray<byte>(decompressedData.Length);
-                decompressedData.CopyTo(result);
+                result = null; // GC.AllocateUninitializedArray<byte>(decompressedData.Length);
+                //decompressedData.CopyTo(result);
                 return false;
             }
             finally
@@ -318,6 +327,13 @@ namespace AssetsTools.NET.Standard.Codecs
         public static int CompressLZ4(ReadOnlySpan<byte> decompressedData, Stream compressStream, CompressionType compressionLevel)
         {
             int maxCompressedSize = LZ4Codec.MaximumOutputSize(decompressedData.Length);
+
+            if (compressStream.TryGetRemainingBuffer(out var seg) && seg.Count >= maxCompressedSize)
+            {
+                int compressedSize = CompressLZ4(decompressedData, seg[..maxCompressedSize], compressionLevel);
+                compressStream.Position += compressedSize;
+                return compressedSize;
+            }
 
             var buffer = ArrayPool<byte>.Shared.Rent(maxCompressedSize);
             try

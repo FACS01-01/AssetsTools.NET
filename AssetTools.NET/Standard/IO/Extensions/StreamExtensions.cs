@@ -19,11 +19,7 @@ namespace AssetsTools.NET.Standard.IO.Extensions
                     source.ReadExactly(copyData);
                     return NewExposedMemoryStream(copyData);
                 case BackingStreamType.FileStream:
-                    int bufferSize = copySize > MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE ?
-                        MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE :
-                        (copySize > MemorySizes.DEFAULT_FILESTREAM_BUFFER_SIZE ?
-                        (int)copySize : MemorySizes.DEFAULT_FILESTREAM_BUFFER_SIZE);
-                    FileStream new_fs = NewTempFileStream(bufferSize);
+                    FileStream new_fs = NewTempFileStream(copySize);
                     CopyToExactly(source, new_fs, copySize);
                     new_fs.Position = 0;
                     return new_fs;
@@ -203,24 +199,28 @@ namespace AssetsTools.NET.Standard.IO.Extensions
             throw new ArgumentException("The ArraySegment<byte> didn't contain a byte[] anymore.", nameof(buffer));
         }
 
-        public static FileStream NewTempFileStream(long bufferSize = MemorySizes.DEFAULT_FILESTREAM_BUFFER_SIZE)
+        public static FileStream NewTempFileStream(long bufferSize = MemorySizes.DEFAULT_FILESTREAM_BUFFER_SIZE, bool sequentialScan = true)
         {
-            if (bufferSize > MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE)
-                bufferSize = MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE;
+            if (bufferSize > MemorySizes.OPTIMAL_BUFFER_SIZE)
+                bufferSize = MemorySizes.OPTIMAL_BUFFER_SIZE;
             else if (bufferSize < MemorySizes.DEFAULT_FILESTREAM_BUFFER_SIZE)
                 bufferSize = MemorySizes.DEFAULT_FILESTREAM_BUFFER_SIZE;
 
             string tempPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
 
-            return new FileStream(tempPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, (int)bufferSize,
-                FileOptions.DeleteOnClose | FileOptions.SequentialScan);
+            var options = FileOptions.DeleteOnClose;
+            if (sequentialScan)
+                options |= FileOptions.SequentialScan;
+
+            return new FileStream(tempPath, FileMode.CreateNew, FileAccess.ReadWrite,
+                FileShare.None, (int)bufferSize, options);
         }
 
         public static Stream GetTempStream(long memSize)
         {
             if (memSize < MemorySizes.TEMP_MEMORY_OPERATION_MAX_SIZE)
                 return NewExposedMemoryStream((int)memSize);
-            return NewTempFileStream();
+            return NewTempFileStream(memSize);
         }
 
         internal static void ThrowIfSizeBiggerThanMemStream(long size)

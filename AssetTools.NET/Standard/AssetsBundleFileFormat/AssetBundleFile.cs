@@ -460,7 +460,7 @@ namespace AssetsTools.NET
                     if (blockDirAtEnd)
                         writeStream = writer.BaseStream;
                     else
-                        writeStream = StreamExtensions.NewTempFileStream();
+                        writeStream = StreamExtensions.NewTempFileStream(0x20000);
 
                     byte[] uncompressedBlock = bundleDataReader.ReadBytes(0x20000);
                     while (uncompressedBlock.Length != 0)
