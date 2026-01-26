@@ -1,5 +1,6 @@
 ﻿using AssetsTools.NET.Standard.Codecs;
 using System;
+using System.Buffers;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
@@ -46,15 +47,38 @@ namespace AssetsTools.NET
             }
         }
 
-        public override byte[] CompressAndEncrypt(ReadOnlySpan<byte> input, int blockIdx)
+        public override bool SupportsEncryptionWithoutCompression() => false;
+        protected override int CalculateEncryptionSize(int plainSize) => plainSize;
+
+        protected override int Encrypt(Stream plainData, int plainSize, Stream cipherStream, int blockIdx)
+            => throw new NotSupportedException("Encryption without compression is not supported by UnityCN.");
+        protected override int Encrypt(ReadOnlySpan<byte> plainData, Span<byte> cipherSpan, int blockIdx)
+            => throw new NotSupportedException("Encryption without compression is not supported by UnityCN.");
+
+        protected override int CompressAndEncrypt(ReadOnlySpan<byte> plainSpan, Stream compressedCipherStream, int blockIdx)
         {
-            var compressedData = CodecUtilities.CompressLZ4ToArray(input, CompressionType.LZ4);
-            EncryptBlock(compressedData, blockIdx);
-            return compressedData;
+            var maxCompressedSize = CodecUtilities.LZ4MaxCompressedSize(plainSpan.Length);
+            var buffer = ArrayPool<byte>.Shared.Rent(maxCompressedSize);
+            try
+            {
+                var compressSpan = buffer.AsSpan(0, maxCompressedSize);
+                var compressedSize = CodecUtilities.CompressLZ4(plainSpan, compressSpan, CompressionType.LZ4);
+                compressSpan = compressSpan[..compressedSize];
+                EncryptBlock(compressSpan, blockIdx);
+                compressedCipherStream.Write(compressSpan);
+                return compressedSize;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
 
         protected override void Decrypt(Stream cipherData, int cipherdSize, int plainSize, Stream plainStream, int blockIdx)
             => throw new NotSupportedException("Decryption without decompression is not supported by UnityCN.");
+        protected override void Decrypt(ReadOnlySpan<byte> cipherSpan, Span<byte> plainSpan, int blockIdx)
+            => throw new NotSupportedException("Decryption without decompression is not supported by UnityCN.");
+
         protected override void DecryptAndDecompress(ReadOnlySpan<byte> compressedCipherSpan, Span<byte> plainSpan, int blockIdx)
         {
             int s = 0, d = 0;

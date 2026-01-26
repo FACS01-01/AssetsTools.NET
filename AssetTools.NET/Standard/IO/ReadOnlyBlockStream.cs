@@ -234,8 +234,8 @@ namespace AssetsTools.NET.IO
 
                 if (decryptor != null)
                 {
-                    //
-                    decryptor.DecryptAndDecompress();
+                    decryptor.DecryptAndDecompress(_baseStream, compressedSize, decompressedSize,
+                        blockCompressions[blockIdx], newms, blockIdx);
                 }
                 else
                 {
@@ -252,7 +252,8 @@ namespace AssetsTools.NET.IO
 
                 if (decryptor != null)
                 {
-                    //
+                    decryptor.DecryptAndDecompress(_baseStream, compressedSize, decompressedSize,
+                        blockCompressions[blockIdx], tempCacheFile, blockIdx);
                 }
                 else
                 {

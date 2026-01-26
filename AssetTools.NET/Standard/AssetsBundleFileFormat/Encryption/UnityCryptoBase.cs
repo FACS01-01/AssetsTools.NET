@@ -63,6 +63,11 @@ namespace AssetsTools.NET
         }
 
         /// <summary>
+        /// Checks if the cryptographic engine is available for use.
+        /// </summary>
+        public bool IsUsable => _cryptoEngine != null;
+
+        /// <summary>
         /// Gets the hexadecimal representation of the key.
         /// </summary>
         public string GetKey() => _hexKey;
@@ -167,11 +172,6 @@ namespace AssetsTools.NET
         }
 
         /// <summary>
-        /// Initializes the cryptographic engine for use by the current instance.
-        /// </summary>
-        protected virtual void InitCryptoEngine() { }
-
-        /// <summary>
         /// Validates that the specified string has the correct length, and if not, <see langword="throw"/>.
         /// </summary>
         protected abstract void VerifyHexKey(string hexString);
@@ -179,27 +179,156 @@ namespace AssetsTools.NET
         /// <summary>
         /// Creates a new cryptographic engine instance using the specified key.
         /// </summary>
+        /// <param name="key">The byte array representing the provided hex string key.</param>
         /// <remarks>
         /// If you need to initialize any additional resources after creating the engine, override <see cref="InitCryptoEngine"/>.
         /// </remarks>
         protected abstract IDisposable CreateCryptoEngine(byte[] key);
 
+        /// <summary>
+        /// Initializes the cryptographic engine and its resources for use by the current instance.
+        /// </summary>
+        /// <remarks>
+        /// Always called after <see cref="CreateCryptoEngine"/>.
+        /// </remarks>
+        protected virtual void InitCryptoEngine() { }
 
+        /// <summary>
+        /// Determines whether encryption can be applied without requiring compression.
+        /// </summary>
+        public abstract bool SupportsEncryptionWithoutCompression();
 
+        /// <summary>
+        /// Calculates the number of bytes required to store encrypted data for a given plaintext size.
+        /// </summary>
+        protected abstract int CalculateEncryptionSize(int plainSize);
+
+        /// <summary>
+        /// Compresses and encrypts a block of data from the specified stream using the given compression type,
+        /// writing the resulting cipher data to the provided output stream.
+        /// </summary>
+        /// <param name="plainData">The input stream containing plain data to be processed.</param>
+        /// <param name="plainSize">The amount, in bytes, of plain data to read from the input stream.</param>
+        /// <param name="compressionType">The type of compression to apply to the data.</param>
+        /// <param name="compressedCipherStream">The output stream to which the compressed and encrypted data will be written.</param>
+        /// <param name="blockIdx">The zero-based index of the data block being processed.</param>
+        public virtual int CompressAndEncrypt(Stream plainData, long plainSize, CompressionType compressionType,
+            Stream compressedCipherStream, int blockIdx)
+        {
+            if (!IsUsable)
+                throw new InvalidOperationException("Crypto engine is not initialized. Set a valid key before using.");
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(plainSize, int.MaxValue, nameof(plainSize));
+            int _plainSize = (int)plainSize;
+
+            switch (compressionType)
+            {
+                case CompressionType.None:
+                    if (!SupportsEncryptionWithoutCompression())
+                        throw new NotSupportedException($"{GetType()} doesn't support encryption without compression.");
+                    return Encrypt(plainData, _plainSize, compressedCipherStream, blockIdx);
+                case CompressionType.LZ4:
+                case CompressionType.LZ4HC:
+                    return CompressAndEncrypt(plainData, _plainSize, compressedCipherStream, blockIdx);
+                default:
+                    throw new NotSupportedException($"Unsupported compression type for {GetType()}.");
+            }
+        }
+
+        protected virtual int Encrypt(Stream plainData, int plainSize, Stream cipherStream, int blockIdx)
+        {
+            if (plainData.TryReadBuffer(plainSize, out ReadOnlySpan<byte> plainSpan))
+            {
+                return Encrypt(plainSpan, cipherStream, blockIdx);
+            }
+
+            var buffer = ArrayPool<byte>.Shared.Rent(plainSize);
+            try
+            {
+                var plainSpan2 = buffer.AsSpan(0, plainSize);
+                plainData.ReadExactly(plainSpan2);
+                return Encrypt(plainSpan2, cipherStream, blockIdx);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        protected virtual int Encrypt(ReadOnlySpan<byte> plainData, Stream cipherStream, int blockIdx)
+        {
+            var cipherSize = CalculateEncryptionSize(plainData.Length);
+            if (cipherStream.TryGetRemainingBuffer(out var seg) && seg.Count >= cipherSize)
+            {
+                Encrypt(plainData, seg, blockIdx);
+                cipherStream.Position += cipherSize;
+                return cipherSize;
+            }
+
+            var buffer = ArrayPool<byte>.Shared.Rent(cipherSize);
+            try
+            {
+                Span<byte> cipherSpan = buffer.AsSpan(0, cipherSize);
+                Encrypt(plainData, cipherSpan, blockIdx);
+                cipherStream.Write(cipherSpan);
+                return cipherSize;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        /// <summary>
+        /// Encrypts the specified input data block.
+        /// </summary>
+        /// <param name="plainData">The input data to be encrypted.</param>
+        /// <param name="cipherSpan">The output span to receive the encrypted data.</param>
+        /// <param name="blockIdx">The zero-based index of the input data block.</param>
+        protected abstract int Encrypt(ReadOnlySpan<byte> plainData, Span<byte> cipherSpan, int blockIdx);
+
+        protected virtual int CompressAndEncrypt(Stream plainData, int plainSize, Stream compressedCipherStream, int blockIdx)
+        {
+            if (plainData.TryReadBuffer(plainSize, out ReadOnlySpan<byte> plainSpan))
+            {
+                return CompressAndEncrypt(plainSpan, compressedCipherStream, blockIdx);
+            }
+
+            var buffer = ArrayPool<byte>.Shared.Rent(plainSize);
+            try
+            {
+                var plainSpan2 = buffer.AsSpan(0, plainSize);
+                plainData.ReadExactly(plainSpan2);
+                return CompressAndEncrypt(plainSpan2, compressedCipherStream, blockIdx);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
 
         /// <summary>
         /// Compresses and encrypts the specified input data block.
         /// </summary>
-        /// <param name="input">The input data to be compressed and encrypted.</param>
+        /// <param name="plainSpan">The input data to be compressed and then encrypted.</param>
+        /// <param name="compressedCipherStream">The output span to receive the compressed and encrypted data.</param>
         /// <param name="blockIdx">The zero-based index of the input data block.</param>
-        /// <returns>A <see langword="byte"/>[] containing the compressed and encrypted representation of the input data.</returns>
-        public abstract byte[] CompressAndEncrypt(ReadOnlySpan<byte> input, int blockIdx);
-
+        protected abstract int CompressAndEncrypt(ReadOnlySpan<byte> plainSpan, Stream compressedCipherStream, int blockIdx);
         
-
+        /// <summary>
+        /// Decrypts and decompresses a block of data from the specified stream using the given compression type,
+        /// writing the resulting plain data to the provided output stream.
+        /// </summary>
+        /// <param name="compressedCipherData">The input stream containing the encrypted and compressed data to be processed.</param>
+        /// <param name="compressedCipherSize">The size, in bytes, of the encrypted and compressed data to read from the input stream.</param>
+        /// <param name="plainSize">The expected size, in bytes, of the resulting plain (decrypted and decompressed) data.</param>
+        /// <param name="compressionType">The type of compression applied to the data.</param>
+        /// <param name="plainStream">The output stream to which the decrypted and decompressed data will be written.</param>
+        /// <param name="blockIdx">The zero-based index of the data block being processed.</param>
         public virtual void DecryptAndDecompress(Stream compressedCipherData, long compressedCipherSize, long plainSize,
             CompressionType compressionType, Stream plainStream, int blockIdx)
         {
+            if (!IsUsable)
+                throw new InvalidOperationException("Crypto engine is not initialized. Set a valid key before using.");
             ArgumentOutOfRangeException.ThrowIfGreaterThan(compressedCipherSize, int.MaxValue, nameof(compressedCipherSize));
             ArgumentOutOfRangeException.ThrowIfGreaterThan(plainSize, int.MaxValue, nameof(plainSize));
             int _compressedCipherSize = (int)compressedCipherSize;
@@ -208,6 +337,8 @@ namespace AssetsTools.NET
             switch (compressionType)
             {
                 case CompressionType.None:
+                    if (!SupportsEncryptionWithoutCompression())
+                        throw new NotSupportedException($"{GetType()} doesn't support encryption without compression.");
                     Decrypt(compressedCipherData, _compressedCipherSize, _plainSize, plainStream, blockIdx);
                     break;
                 case CompressionType.LZ4:
@@ -215,7 +346,7 @@ namespace AssetsTools.NET
                     DecryptAndDecompress(compressedCipherData, _compressedCipherSize, _plainSize, plainStream, blockIdx);
                     break;
                 default:
-                    throw new NotSupportedException("Unsupported compression type for Unity Encryption.");
+                    throw new NotSupportedException($"Unsupported compression type for {GetType()}.");
             }
         }
 
@@ -262,6 +393,12 @@ namespace AssetsTools.NET
             }
         }
 
+        /// <summary>
+        /// Decrypts the specified input data block.
+        /// </summary>
+        /// <param name="cipherSpan">The input data to be decrypted.</param>
+        /// <param name="plainSpan">The output span to receive the decrypted data.</param>
+        /// <param name="blockIdx">The zero-based index of the input data block.</param>
         protected abstract void Decrypt(ReadOnlySpan<byte> cipherSpan, Span<byte> plainSpan, int blockIdx);
 
         protected virtual void DecryptAndDecompress(Stream compressedCipherData, int compressedCipherSize, int plainSize, Stream plainStream, int blockIdx)
@@ -307,6 +444,12 @@ namespace AssetsTools.NET
             }
         }
 
+        /// <summary>
+        /// Decrypts and decompresses the specified input data block.
+        /// </summary>
+        /// <param name="compressedCipherSpan">The input data to be decrypted and then decompressed.</param>
+        /// <param name="plainSpan">The output span to receive the decrypted and decompressed data.</param>
+        /// <param name="blockIdx">The zero-based index of the input data block.</param>
         protected abstract void DecryptAndDecompress(ReadOnlySpan<byte> compressedCipherSpan, Span<byte> plainSpan, int blockIdx);
 
         /// <summary>

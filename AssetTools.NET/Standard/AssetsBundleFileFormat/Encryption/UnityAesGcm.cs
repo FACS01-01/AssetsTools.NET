@@ -3,6 +3,7 @@ using AssetsTools.NET.Standard.IO;
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -15,7 +16,8 @@ namespace AssetsTools.NET
         private const int LengthSize = sizeof(int);
         private const int TagSize = 16;
         private const int NonPlainTextBytes = IVSize + LengthSize + TagSize;
-        private const int MaxEncryptionStepSize = MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE / 2 + NonPlainTextBytes;
+        private const int MaxEncryptionStepSize = MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE / 2;
+        private const int MaxDecryptionStepSize = MaxEncryptionStepSize + NonPlainTextBytes;
 
         private AesGcm _aes;
 
@@ -31,39 +33,92 @@ namespace AssetsTools.NET
             return _aes;
         }
 
-        public override byte[] CompressAndEncrypt(ReadOnlySpan<byte> input, int blockIdx)
-        {
-            var maxCompressedSize = CodecUtilities.LZ4MaxCompressedSize(input.Length);
-            if (maxCompressedSize > int.MaxValue - NonPlainTextBytes)
-                throw new ArgumentOutOfRangeException(nameof(input), "Not enough space to safely perform CompressAndEncrypt.");
+        public override bool SupportsEncryptionWithoutCompression() => true;
 
-            byte[] compressed = ArrayPool<byte>.Shared.Rent(maxCompressedSize);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int CeilingDiv(int a, int b) => (a + b - 1) / b;
+        protected override int CalculateEncryptionSize(int plainSize)
+            => plainSize + CeilingDiv(plainSize, MaxEncryptionStepSize) * NonPlainTextBytes;
+        private int CalculateDecryptionSize(int cipherSize)
+            => cipherSize - CeilingDiv(cipherSize, MaxDecryptionStepSize) * NonPlainTextBytes;
+
+        protected override int Encrypt(ReadOnlySpan<byte> plainData, Span<byte> cipherSpan, int blockIdx)
+        {
+            var plainSize = plainData.Length;
+            int cursor = 0;
+            int cipherCursor = 0;
+            while (cursor < plainSize)
+            {
+                int cipherStepSize = plainSize - cursor;
+                if (cipherStepSize > MaxEncryptionStepSize)
+                    cipherStepSize = MaxEncryptionStepSize;
+
+                EncryptStep(plainData.Slice(cursor, cipherStepSize), cipherSpan.Slice(cipherCursor, cipherStepSize + NonPlainTextBytes));
+                
+                cipherCursor += cipherStepSize + NonPlainTextBytes;
+                cursor += cipherStepSize;
+            }
+            return cipherCursor;
+        }
+
+        private void EncryptStep(ReadOnlySpan<byte> plainData, Span<byte> cipherSpan)
+        {
+            var len = plainData.Length;
+
+            Span<byte> iv = cipherSpan[..IVSize];
+            RandomNumberGenerator.Fill(iv);
+
+            var lenWrite = BitConverter.IsLittleEndian ?
+                len : BinaryPrimitives.ReverseEndianness(len); // always write little-endian
+            Unsafe.WriteUnaligned(ref MemoryMarshal.GetReference(cipherSpan.Slice(IVSize, LengthSize)), lenWrite);
+
+            var ciphertext = cipherSpan.Slice(IVSize + LengthSize, len);
+
+            var tag = cipherSpan.Slice(IVSize + LengthSize + len, TagSize);
+
+            _aes.Encrypt(iv, plainData, ciphertext, tag);
+        }
+
+        [SkipLocalsInit]
+        protected override int CompressAndEncrypt(ReadOnlySpan<byte> plainSpan, Stream compressedCipherStream, int blockIdx)
+        {
+            var maxCompressedSize = CodecUtilities.LZ4MaxCompressedSize(plainSpan.Length);
+            var buffer = ArrayPool<byte>.Shared.Rent(maxCompressedSize + NonPlainTextBytes);
             try
             {
-                var len = CodecUtilities.CompressLZ4(input, compressed.AsSpan(0, maxCompressedSize), CompressionType.LZ4);
+                var compressSpan = buffer.AsSpan(IVSize + LengthSize, maxCompressedSize + TagSize);
+                var compressedSize = CodecUtilities.CompressLZ4(plainSpan, compressSpan, CompressionType.LZ4);
 
-                var result = GC.AllocateUninitializedArray<byte>(NonPlainTextBytes + len);
+                Span<byte> backupBytes = stackalloc byte[TagSize];
 
-                Span<byte> iv = result.AsSpan(0, IVSize);
-                RandomNumberGenerator.Fill(iv);
+                int cursor = 0;
+                while (cursor < compressedSize)
+                {
+                    int cipherStepSize = compressedSize - cursor;
+                    bool needsBackup = cipherStepSize > MaxEncryptionStepSize;
+                    if (needsBackup)
+                        cipherStepSize = MaxEncryptionStepSize;
 
-                var lenWrite = BitConverter.IsLittleEndian ?
-                    len : BinaryPrimitives.ReverseEndianness(len); // always write little-endian
-                Unsafe.WriteUnaligned(ref MemoryMarshal.GetReference(result.AsSpan(IVSize, LengthSize)), lenWrite);
+                    var plainSlice = compressSpan.Slice(cursor, cipherStepSize);
+                    if (needsBackup)
+                        compressSpan.Slice(cursor + cipherStepSize, TagSize).CopyTo(backupBytes);
 
-                var ciphertext = result.AsSpan(IVSize + LengthSize, len);
+                    var compressedCipherSpan = buffer.AsSpan(cursor, cipherStepSize + NonPlainTextBytes);
 
-                var tag = result.AsSpan(IVSize + LengthSize + len, TagSize);
-                
-                var plainCompressed = compressed.AsSpan(0, len);
+                    EncryptStep(plainSlice, compressedCipherSpan);
+                    compressedCipherStream.Write(compressedCipherSpan);
 
-                _aes.Encrypt(iv, plainCompressed, ciphertext, tag);
+                    cursor += cipherStepSize;
 
-                return result;
+                    if (needsBackup)
+                        backupBytes.CopyTo(compressSpan.Slice(cursor, TagSize));
+                }
+
+                return CalculateEncryptionSize(compressedSize);   
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(compressed);
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
 
@@ -75,11 +130,11 @@ namespace AssetsTools.NET
             while (cursor < cipherSize)
             {
                 int decipherStepSize = cipherSize - cursor;
-                if (decipherStepSize > MaxEncryptionStepSize)
-                    decipherStepSize = MaxEncryptionStepSize;
+                if (decipherStepSize > MaxDecryptionStepSize)
+                    decipherStepSize = MaxDecryptionStepSize;
                 var cipherStepSpan = cipherSpan.Slice(cursor, decipherStepSize);
 
-                var iv = cipherStepSpan.Slice(0, IVSize);
+                var iv = cipherStepSpan[..IVSize];
 
                 int len = BitConverter.ToInt32(cipherStepSpan.Slice(IVSize, LengthSize));
                 if (!BitConverter.IsLittleEndian) // always read little-endian
@@ -99,8 +154,7 @@ namespace AssetsTools.NET
         protected override void DecryptAndDecompress(ReadOnlySpan<byte> compressedCipherSpan, Span<byte> plainSpan, int blockIdx)
         {
             int cipherSize = compressedCipherSpan.Length;
-            int decipherSteps = (cipherSize + MaxEncryptionStepSize - 1) / MaxEncryptionStepSize; // ceiling division of (cipherSize / MaxEncryptionStepSize)
-            int decipherSize = cipherSize - decipherSteps * NonPlainTextBytes;
+            int decipherSize = CalculateDecryptionSize(cipherSize);
 
             byte[] compressedArr = ArrayPool<byte>.Shared.Rent(decipherSize);
             try
