@@ -188,6 +188,7 @@ namespace AssetsTools.NET.IO
             currentStream.Position = _position - CumulativeLength(CurrentStreamIdx);
             //bool isNextStream = true;
             int totalRead = 0;
+            int read = 0;
             do
             {
                 /*
@@ -208,8 +209,8 @@ namespace AssetsTools.NET.IO
                     currentStream.Position = currentStreamPos;
                 }
                 */ // maybe not needed because _position and CurrentStreamIdx are always in sync outside of this method, and skipping 0 length streams
-                buffer = buffer[totalRead..];
-                int read = currentStream.Read(buffer);
+                buffer = buffer[read..];
+                read = currentStream.Read(buffer);
                 if (read == 0)
                     throw new IOException($"Stream #{CurrentStreamIdx + 1} returned 0 bytes read before reaching its end.");
 
@@ -413,17 +414,16 @@ namespace AssetsTools.NET.IO
             */
             currentStream.Position = currentStreamPos;
             var b = currentStream.ReadByte();
-            if (b != -1)
-            {
-                _position += sizeof(byte);
-                currentStreamPos += sizeof(byte);
+            if (b == -1)
+                throw new IOException($"Stream #{CurrentStreamIdx + 1} returned 0 bytes read before reaching its end.");
 
-                while (_position >= CumulativeLength(CurrentStreamIdx + 1))
-                {
-                    CurrentStreamIdx++;
-                    if (CurrentStreamIdx == streamsCount)
-                        break;
-                }
+            _position += sizeof(byte);
+
+            while (_position >= CumulativeLength(CurrentStreamIdx + 1))
+            {
+                CurrentStreamIdx++;
+                if (CurrentStreamIdx == streamsCount)
+                    break;
             }
 
             return b;
