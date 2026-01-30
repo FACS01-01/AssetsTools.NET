@@ -165,7 +165,7 @@ namespace AssetsTools.NET.Extra
                 md4.Update(BitConverter.GetBytes(node.ByteSize));
                 md4.Update(BitConverter.GetBytes(System.Convert.ToInt32(node.TypeFlags)));
                 md4.Update(BitConverter.GetBytes(System.Convert.ToInt32(node.Version)));
-                md4.Update(BitConverter.GetBytes(System.Convert.ToInt32(node.MetaFlags & 0x4000)));
+                md4.Update(BitConverter.GetBytes(System.Convert.ToInt32(node.MetaFlags & TypeTreeMetaFlags.AlignBytes)));
             }
         }
     }

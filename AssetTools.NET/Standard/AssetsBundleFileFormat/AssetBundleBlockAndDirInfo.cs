@@ -42,7 +42,7 @@ namespace AssetsTools.NET
                 {
                     Offset = reader.ReadInt64(),
                     DecompressedSize = reader.ReadInt64(),
-                    Flags = reader.ReadUInt32(),
+                    Flags = (ArchiveNodeFlags)reader.ReadUInt32(), //test ReadInt32()
                     Name = reader.ReadNullTerminated()
                 };
                 DirectoryInfos.Add(dirInfo);
@@ -76,7 +76,7 @@ namespace AssetsTools.NET
             {
                 writer.Write(DirectoryInfos[i].Offset);
                 writer.Write(DirectoryInfos[i].DecompressedSize);
-                writer.Write(DirectoryInfos[i].Flags);
+                writer.Write((uint)DirectoryInfos[i].Flags); // test cast to int
                 writer.WriteNullTerminated(DirectoryInfos[i].Name);
             }
         }

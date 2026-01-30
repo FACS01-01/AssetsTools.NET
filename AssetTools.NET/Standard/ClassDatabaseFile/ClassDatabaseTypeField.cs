@@ -2,14 +2,14 @@
 
 namespace AssetsTools.NET
 {
-    public class ClassDatabaseTypeNode
+    public class ClassDatabaseTypeNode // related to: TypeTreeNode (https://github.com/Unity-Technologies/UnityDataTools/blob/8500857f5dec6e4ee1189451a4e49f1e4b3b24c8/UnityFileSystem/TypeTreeNode.cs#L9)
     {
         public ushort TypeName { get; set; }
         public ushort FieldName { get; set; }
         public int ByteSize { get; set; }
         public ushort Version { get; set; }
         public byte TypeFlags { get; set; }
-        public uint MetaFlag { get; set; }
+        public TypeTreeMetaFlags MetaFlag { get; set; }
         public List<ClassDatabaseTypeNode> Children { get; set; }
 
         /// <summary>
@@ -23,7 +23,7 @@ namespace AssetsTools.NET
             ByteSize = reader.ReadInt32();
             Version = reader.ReadUInt16();
             TypeFlags = reader.ReadByte();
-            MetaFlag = reader.ReadUInt32();
+            MetaFlag = (TypeTreeMetaFlags)reader.ReadUInt32(); // test ReadInt32
 
             int childrenCount = reader.ReadUInt16();
             Children = new List<ClassDatabaseTypeNode>(childrenCount);
@@ -46,7 +46,7 @@ namespace AssetsTools.NET
             writer.Write(ByteSize);
             writer.Write(Version);
             writer.Write(TypeFlags);
-            writer.Write(MetaFlag);
+            writer.Write((uint)MetaFlag); // test cast to int
 
             writer.Write((ushort)Children.Count);
             for (int i = 0; i < Children.Count; i++)

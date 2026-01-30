@@ -1,6 +1,6 @@
 ﻿namespace AssetsTools.NET
 {
-    public class AssetsFileExternal
+    public class AssetsFileExternal // related to: ExternalReference (https://github.com/Unity-Technologies/UnityDataTools/blob/8500857f5dec6e4ee1189451a4e49f1e4b3b24c8/UnityFileSystem/SerializedFile.cs#L7-L12)
     {
         /// <summary>
         /// Unknown.
@@ -9,7 +9,7 @@
         /// <summary>
         /// GUID for dependencies used in editor. Otherwise this is 0.
         /// </summary>
-        public GUID128 Guid { get; set; }
+        public GUID128 Guid { get; set; } // try handle as string 32 length
         /// <summary>
         /// Dependency type.
         /// </summary>

@@ -124,10 +124,10 @@ namespace AssetsTools.NET.Extra
             }
         }
 
-        private uint GetMetaFlags(AssetTypeTemplateField templateField)
+        private TypeTreeMetaFlags GetMetaFlags(AssetTypeTemplateField templateField)
         {
             // todo: all flags
-            return templateField.IsAligned ? 0x4000u : 0u;
+            return templateField.IsAligned ? TypeTreeMetaFlags.AlignBytes : TypeTreeMetaFlags.None;
         }
 
         private TypeTreeNodeFlags GetTypeFlags(AssetTypeTemplateField templateField)
@@ -179,7 +179,7 @@ namespace AssetsTools.NET.Extra
                 md4.Update(BitConverter.GetBytes(node.ByteSize));
                 md4.Update(BitConverter.GetBytes(System.Convert.ToInt32(node.TypeFlags)));
                 md4.Update(BitConverter.GetBytes(System.Convert.ToInt32(node.Version)));
-                md4.Update(BitConverter.GetBytes(System.Convert.ToInt32(node.MetaFlags & 0x4000)));
+                md4.Update(BitConverter.GetBytes(System.Convert.ToInt32(node.MetaFlags & TypeTreeMetaFlags.AlignBytes)));
             }
         }
     }

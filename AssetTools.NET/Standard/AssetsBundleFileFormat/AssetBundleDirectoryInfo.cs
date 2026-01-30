@@ -1,6 +1,6 @@
 ﻿namespace AssetsTools.NET
 {
-    public class AssetBundleDirectoryInfo
+    public class AssetBundleDirectoryInfo // related: ArchiveNode (https://github.com/Unity-Technologies/UnityDataTools/blob/8500857f5dec6e4ee1189451a4e49f1e4b3b24c8/UnityFileSystem/UnityArchive.cs#L8-L13)
     {
         /// <summary>
         /// Offset from bundle's data start (header.GetFileDataOffset()).
@@ -16,7 +16,7 @@
         /// 0x02: Entry is deleted. Unknown usage.
         /// 0x04: Entry is serialized file. Assets files should enable this, and other files like .resS or .resource(s) should disable this.
         /// </summary>
-        public uint Flags; // todo: this should have real flags
+        public ArchiveNodeFlags Flags; // todo: this should have real flags
         /// <summary>
         /// Name of this entry.
         /// </summary>
@@ -39,7 +39,7 @@
         /// <summary>
         /// Is the file serialized?
         /// </summary>
-        public bool IsSerialized => (Flags & 4) != 0;
+        public bool IsSerialized => Flags.HasFlag(ArchiveNodeFlags.SerializedFile);
 
         /// <summary>
         /// Sets the bytes used when the AssetBundleFile is written.
@@ -77,7 +77,7 @@
             {
                 Offset = -1,
                 DecompressedSize = 0,
-                Flags = isSerialized ? 0x04u : 0x00u,
+                Flags = isSerialized ? ArchiveNodeFlags.SerializedFile : ArchiveNodeFlags.None,
                 Name = name
             };
         }

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace AssetsTools.NET
 {
-    public class AssetsFileMetadata
+    public class AssetsFileMetadata // related to: SerializedFile (https://github.com/Unity-Technologies/UnityDataTools/blob/8500857f5dec6e4ee1189451a4e49f1e4b3b24c8/UnityFileSystem/SerializedFile.cs#L14)
     {
         /// <summary>
         /// Engine version this file uses.

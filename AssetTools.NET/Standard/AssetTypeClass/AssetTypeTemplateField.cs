@@ -56,7 +56,7 @@ namespace AssetsTools.NET
             Type = field.GetTypeString(typeTreeType.StringBufferBytes);
             ValueType = AssetTypeValueField.GetValueTypeByTypeName(Type);
             IsArray = field.TypeFlags.HasFlag(TypeTreeNodeFlags.Array);
-            IsAligned = (field.MetaFlags & 0x4000) != 0;
+            IsAligned = field.MetaFlags.HasFlag(TypeTreeMetaFlags.AlignBytes);
             HasValue = ValueType != AssetValueType.None;
             Version = field.Version;
 
@@ -121,7 +121,7 @@ namespace AssetsTools.NET
 
             ValueType = AssetTypeValueField.GetValueTypeByTypeName(Type);
             IsArray = node.TypeFlags == 1;
-            IsAligned = (node.MetaFlag & 0x4000) != 0;
+            IsAligned = node.MetaFlag.HasFlag(TypeTreeMetaFlags.AlignBytes);
             HasValue = ValueType != AssetValueType.None;
             Version = node.Version;
 

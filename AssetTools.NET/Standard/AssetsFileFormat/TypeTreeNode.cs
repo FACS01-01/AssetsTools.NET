@@ -3,7 +3,7 @@ using System.Text;
 
 namespace AssetsTools.NET
 {
-    public class TypeTreeNode
+    public class TypeTreeNode // related to: TypeTreeNode (https://github.com/Unity-Technologies/UnityDataTools/blob/8500857f5dec6e4ee1189451a4e49f1e4b3b24c8/UnityFileSystem/TypeTreeNode.cs#L9)
     {
         /// <summary>
         /// Version of the node.
@@ -38,7 +38,7 @@ namespace AssetsTools.NET
         /// <summary>
         /// 0x4000 if aligned.
         /// </summary>
-        public uint MetaFlags { get; set; }
+        public TypeTreeMetaFlags MetaFlags { get; set; }
         /// <summary>
         /// Unknown.
         /// </summary>
@@ -58,7 +58,7 @@ namespace AssetsTools.NET
             NameStrOffset = reader.ReadUInt32();
             ByteSize = reader.ReadInt32();
             Index = reader.ReadUInt32();
-            MetaFlags = reader.ReadUInt32();
+            MetaFlags = (TypeTreeMetaFlags)reader.ReadUInt32(); // test ReadInt32
             if (version >= 0x12)
             {
                 RefTypeHash = reader.ReadUInt64();
@@ -79,7 +79,7 @@ namespace AssetsTools.NET
             writer.Write(NameStrOffset);
             writer.Write(ByteSize);
             writer.Write(Index);
-            writer.Write(MetaFlags);
+            writer.Write((uint)MetaFlags); // test cast to int
             if (version >= 0x12)
             {
                 writer.Write(RefTypeHash);

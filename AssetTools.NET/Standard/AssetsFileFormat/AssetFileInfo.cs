@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 namespace AssetsTools.NET
 {
-    public class AssetFileInfo
+    public class AssetFileInfo // related to: ObjectInfo (https://github.com/Unity-Technologies/UnityDataTools/blob/8500857f5dec6e4ee1189451a4e49f1e4b3b24c8/UnityFileSystem/DllWrapper.cs#L115-L122)
     {
         /// <summary>
         /// Path ID of the asset.
