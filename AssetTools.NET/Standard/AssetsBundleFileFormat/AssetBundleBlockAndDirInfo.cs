@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 
 namespace AssetsTools.NET
 {
@@ -20,25 +21,41 @@ namespace AssetsTools.NET
         /// </summary>
         public List<AssetBundleDirectoryInfo> DirectoryInfos { get; set; }
 
-        public void Read(AssetsFileReader reader)
+        public AssetBundleBlockAndDirInfo()
         {
-            Hash = new Hash128(reader.ReadBytes(16));
+            Hash = new Hash128();
+            BlockInfos = Array.Empty<AssetBundleBlockInfo>();
+            DirectoryInfos = new(0);
+        }
+        public AssetBundleBlockAndDirInfo(AssetsFileReader reader, bool hasDirInfo)
+        {
+            reader.BigEndian = true;
 
+            Hash = new Hash128(reader.ReadBytes(16));
             int blockCount = reader.ReadInt32();
             BlockInfos = new AssetBundleBlockInfo[blockCount];
             for (int i = 0; i < blockCount; i++)
             {
-                BlockInfos[i] = new AssetBundleBlockInfo();
-                BlockInfos[i].DecompressedSize = reader.ReadUInt32();
-                BlockInfos[i].CompressedSize = reader.ReadUInt32();
-                BlockInfos[i].Flags = reader.ReadUInt16();
+                var blockInfo = new AssetBundleBlockInfo
+                {
+                    DecompressedSize = reader.ReadUInt32(),
+                    CompressedSize = reader.ReadUInt32(),
+                    Flags = reader.ReadUInt16()
+                };
+                BlockInfos[i] = blockInfo;
+            }
+
+            if (!hasDirInfo)
+            {
+                DirectoryInfos = new(0);
+                return;
             }
 
             int directoryCount = reader.ReadInt32();
             DirectoryInfos = new List<AssetBundleDirectoryInfo>(directoryCount);
             for (int i = 0; i < directoryCount; i++)
             {
-                AssetBundleDirectoryInfo dirInfo = new AssetBundleDirectoryInfo
+                var dirInfo = new AssetBundleDirectoryInfo
                 {
                     Offset = reader.ReadInt64(),
                     DecompressedSize = reader.ReadInt64(),
@@ -49,12 +66,14 @@ namespace AssetsTools.NET
             }
         }
 
-        public void Write(AssetsFileWriter writer)
+        public void Write(AssetsFileWriter writer, bool hasDirInfo)
         {
+            writer.BigEndian = true;
+
             if (Hash.data == null)
             {
-                writer.Write((ulong)0);
-                writer.Write((ulong)0);
+                writer.Write(0L);
+                writer.Write(0L);
             }
             else
             {
@@ -70,6 +89,9 @@ namespace AssetsTools.NET
                 writer.Write(BlockInfos[i].Flags);
             }
 
+            if (!hasDirInfo)
+                return;
+
             int directoryCount = DirectoryInfos.Count;
             writer.Write(directoryCount);
             for (int i = 0; i < directoryCount; i++)
@@ -79,6 +101,18 @@ namespace AssetsTools.NET
                 writer.Write((uint)DirectoryInfos[i].Flags); // test cast to int
                 writer.WriteNullTerminated(DirectoryInfos[i].Name);
             }
+        }
+
+        public uint UncompressedInfoSize(bool hasDirInfo)
+        {
+            uint val = (uint)(16 + 4 + BlockInfos.Length * (4 + 4 + 2));
+            if (hasDirInfo)
+            {
+                val += (uint)(4 + DirectoryInfos.Count * (8 + 8 + 4));
+                foreach (var dirInfo in DirectoryInfos)
+                    val += (uint)(dirInfo.Name.Length + 1);
+            }
+            return val;
         }
     }
 }

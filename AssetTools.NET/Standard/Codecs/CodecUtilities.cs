@@ -179,27 +179,25 @@ namespace AssetsTools.NET.Standard.Codecs
             }
         }
 
-        public static void CompressToStream(Stream decompressedData, CompressionType compressionType, Stream compressStream)
+        public static long CompressToStream(Stream decompressedData, CompressionType compressionType, Stream compressStream)
         {
             long decompressedSize = decompressedData.Length - decompressedData.Position;
-            CompressToStream(decompressedData, decompressedSize, compressionType, compressStream);
+            return CompressToStream(decompressedData, decompressedSize, compressionType, compressStream);
         }
 
-        public static void CompressToStream(Stream decompressedData, long decompressedSize, CompressionType compressionType, Stream compressStream)
+        public static long CompressToStream(Stream decompressedData, long decompressedSize, CompressionType compressionType, Stream compressStream)
         {
             switch (compressionType)
             {
                 case CompressionType.None:
                     StreamExtensions.CopyToExactly(decompressedData, compressStream, decompressedSize);
-                    break;
+                    return decompressedSize;
                 case CompressionType.LZMA:
-                    CompressLZMA(decompressedData, decompressedSize, compressStream);
-                    break;
+                    return CompressLZMA(decompressedData, decompressedSize, compressStream);
                 case CompressionType.LZ4:
                 case CompressionType.LZ4HC:
                     StreamExtensions.ThrowIfSizeBiggerThanMemStream(decompressedSize);
-                    CompressLZ4(decompressedData, (int)decompressedSize, compressStream, compressionType);
-                    break;
+                    return CompressLZ4(decompressedData, (int)decompressedSize, compressStream, compressionType);
                 default:
                     throw new CodecNotImplementedException(compressionType);
             }
@@ -296,8 +294,7 @@ namespace AssetsTools.NET.Standard.Codecs
                     return true;
                 }
 
-                result = null; // GC.AllocateUninitializedArray<byte>(decompressedData.Length);
-                //decompressedData.CopyTo(result);
+                result = null;
                 return false;
             }
             finally

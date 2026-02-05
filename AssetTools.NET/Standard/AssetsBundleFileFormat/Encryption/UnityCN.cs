@@ -1,4 +1,5 @@
 ﻿using AssetsTools.NET.Standard.Codecs;
+using AssetsTools.NET.Standard.IO;
 using System;
 using System.Buffers;
 using System.IO;
@@ -8,14 +9,104 @@ using System.Text;
 
 namespace AssetsTools.NET
 {
-    public sealed class UnityCN : UnityCryptoBase
+    public sealed class UnityCN : UnityCrypto<ICryptoTransform>
     {
+        // for default header
         private const string Signature = "#$unity3dchina!@";
+        private static readonly byte[] DefaultInfoBytes = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xA6, 0xB1, 0xDE, 0x48, 0x9E, 0x2B, 0x53, 0x5C];
+        private static readonly byte[] DefaultInfoKey = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10];
+        private static readonly byte[] DefaultSignatureBytes = Encoding.UTF8.GetBytes(Signature);
+        private static readonly byte[] DefaultSignatureKey = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10];
 
-        private ICryptoTransform _aes;
-        private readonly byte[] Index = new byte[16];
-        private readonly byte[] Sub = new byte[16];
+        // for instance header
+        public uint Value;
+        public byte[] InfoBytes { get; private set; } = new byte[16];
+        public byte[] InfoKey { get; private set; } = new byte[16];
+        public byte DummyByte1;
+        public byte[] SignatureBytes { get; private set; } = new byte[16];
+        public byte[] SignatureKey { get; private set; } = new byte[16];
+        public byte DummyByte2;
+        private bool _initBytes = false;
+
+        // for crypto engine
+        private byte[] Index = new byte[16];
+        private byte[] Sub = new byte[16];
         private bool _isIndexSpecial = false;
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+
+            if (disposing)
+            {
+                InfoBytes = null;
+                InfoKey = null;
+                SignatureBytes = null;
+                SignatureKey = null;
+                Index = null;
+                Sub = null;
+            }
+        }
+
+        public override void SetDefaultHeader()
+        {
+            Value = 0;
+            DefaultInfoBytes.CopyTo(InfoBytes);
+            DefaultInfoKey.CopyTo(InfoKey);
+            DummyByte1 = 0;
+            DefaultSignatureBytes.CopyTo(SignatureBytes);
+            DefaultSignatureKey.CopyTo(SignatureKey);
+            DummyByte2 = 0;
+        }
+
+        public override void ReadHeaderFrom(AssetsFileReader reader)
+        {
+            reader.BigEndian = true;
+
+            Value = reader.ReadUInt32();
+            reader.ReadExactly(InfoBytes);
+            reader.ReadExactly(InfoKey);
+            DummyByte1 = reader.ReadByte();
+            reader.ReadExactly(SignatureBytes);
+            reader.ReadExactly(SignatureKey);
+            DummyByte2 = reader.ReadByte();
+
+            _initBytes = true;
+        }
+
+        public override void CopyHeaderFrom(UnityCryptoBase toCopy)
+        {
+            if (toCopy is UnityCN toCopyCN)
+            {
+                Value = toCopyCN.Value;
+                toCopyCN.InfoBytes.CopyTo(InfoBytes);
+                toCopyCN.InfoKey.CopyTo(InfoKey);
+                DummyByte1 = toCopyCN.DummyByte1;
+                toCopyCN.SignatureBytes.CopyTo(SignatureBytes);
+                toCopyCN.SignatureKey.CopyTo(SignatureKey);
+                DummyByte2 = toCopyCN.DummyByte2;
+
+                _initBytes = toCopyCN._initBytes;
+            }
+            if (this.GetHeaderSize() > toCopy.GetHeaderSize())
+                return; // or throw?
+            //todo?
+        }
+
+        public override void WriteHeader(AssetsFileWriter writer)
+        {
+            writer.BigEndian = true;
+
+            writer.Write(Value);
+            writer.Write(InfoBytes);
+            writer.Write(InfoKey);
+            writer.Write(DummyByte1);
+            writer.Write(SignatureBytes);
+            writer.Write(SignatureKey);
+            writer.Write(DummyByte2);
+        }
+
+        public override int GetHeaderSize() => 4 + 16 + 16 + 1 + 16 + 16 + 1;
 
         protected override void VerifyHexKey(string hexString)
         {
@@ -23,17 +114,23 @@ namespace AssetsTools.NET
                 throw new ArgumentException("CN key must be 16 or 32 hex chars.");
         }
 
-        protected override IDisposable CreateCryptoEngine(byte[] key)
+        protected override ICryptoTransform CreateCryptoEngine(byte[] key)
         {
             using var aes = Aes.Create();
             aes.Mode = CipherMode.ECB;
             aes.Key = key;
-            _aes = aes.CreateEncryptor();
-            return _aes;
+            return aes.CreateEncryptor();
         }
 
         protected override void InitCryptoEngine()
         {
+            if (!_initBytes)
+            {
+                XorWithAes(InfoKey, InfoBytes);
+                XorWithAes(SignatureKey, SignatureBytes);
+                _initBytes = true;
+            }
+
             InitializeTables();
 
             _isIndexSpecial = true;
@@ -47,7 +144,19 @@ namespace AssetsTools.NET
             }
         }
 
-        public override bool SupportsEncryptionWithoutCompression() => false;
+        public override bool SupportsCompression(CompressionType compressionType)
+        {
+            return compressionType switch
+            {
+                CompressionType.LZ4 or CompressionType.LZ4HC => true,
+                _ => false
+            };
+        }
+
+        public override CompressionType MainCompressionType() => CompressionType.LZ4;
+
+        public override int MaxPlainBlockSize() => MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE;
+
         protected override int CalculateEncryptionSize(int plainSize) => plainSize;
 
         protected override int Encrypt(Stream plainData, int plainSize, Stream cipherStream, int blockIdx)
@@ -55,18 +164,18 @@ namespace AssetsTools.NET
         protected override int Encrypt(ReadOnlySpan<byte> plainData, Span<byte> cipherSpan, int blockIdx)
             => throw new NotSupportedException("Encryption without compression is not supported by UnityCN.");
 
-        protected override int CompressAndEncrypt(ReadOnlySpan<byte> plainSpan, Stream compressedCipherStream, int blockIdx)
+        protected override (int cipherSize, CompressionType revisedCompression) CompressAndEncrypt(ReadOnlySpan<byte> plainSpan, Stream compressedCipherStream, int blockIdx, CompressionType compressionType)
         {
             var maxCompressedSize = CodecUtilities.LZ4MaxCompressedSize(plainSpan.Length);
             var buffer = ArrayPool<byte>.Shared.Rent(maxCompressedSize);
             try
             {
                 var compressSpan = buffer.AsSpan(0, maxCompressedSize);
-                var compressedSize = CodecUtilities.CompressLZ4(plainSpan, compressSpan, CompressionType.LZ4);
+                var compressedSize = CodecUtilities.CompressLZ4(plainSpan, compressSpan, compressionType);
                 compressSpan = compressSpan[..compressedSize];
                 EncryptBlock(compressSpan, blockIdx);
                 compressedCipherStream.Write(compressSpan);
-                return compressedSize;
+                return (compressedSize, compressionType);
             }
             finally
             {
@@ -79,7 +188,7 @@ namespace AssetsTools.NET
         protected override void Decrypt(ReadOnlySpan<byte> cipherSpan, Span<byte> plainSpan, int blockIdx)
             => throw new NotSupportedException("Decryption without decompression is not supported by UnityCN.");
 
-        protected override void DecryptAndDecompress(ReadOnlySpan<byte> compressedCipherSpan, Span<byte> plainSpan, int blockIdx)
+        protected override void DecryptAndDecompress(ReadOnlySpan<byte> compressedCipherSpan, CompressionType compressionType, Span<byte> plainSpan, int blockIdx)
         {
             int s = 0, d = 0;
 
@@ -147,7 +256,7 @@ namespace AssetsTools.NET
 
         private void XorWithAes(byte[] key, byte[] data)
         {
-            key = _aes.TransformFinalBlock(key, 0, 16);
+            key = CryptoEngine.TransformFinalBlock(key, 0, 16);
             for (int i = 0; i < 16; i++)
                 data[i] ^= key[i];
         }

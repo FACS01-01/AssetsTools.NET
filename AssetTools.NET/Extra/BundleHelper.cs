@@ -73,32 +73,29 @@ namespace AssetsTools.NET.Extra
         public static AssetBundleFile UnpackBundle(AssetBundleFile file, bool freeOriginalStream = true)
         {
             MemoryStream ms = new MemoryStream();
-            file.Unpack(new AssetsFileWriter(ms));
-            ms.Position = 0;
+            file.Write(ms, Standard.Codecs.CompressionType.None, Standard.Codecs.CompressionType.None);
 
-            AssetBundleFile newFile = new AssetBundleFile();
-            newFile.Read(new AssetsFileReader(ms));
+            ms.Position = 0;
+            AssetBundleFile newFile = new AssetBundleFile(ms, false);
 
             if (freeOriginalStream)
             {
-                file.Reader.Close();
-                file.DataReader.Close();
+                file.Dispose();
             }
             return newFile;
         }
 
         public static AssetBundleFile UnpackBundleToStream(AssetBundleFile file, Stream stream, bool freeOriginalStream = true)
         {
-            file.Unpack(new AssetsFileWriter(stream));
             stream.Position = 0;
+            file.Write(stream, Standard.Codecs.CompressionType.None, Standard.Codecs.CompressionType.None);
 
-            AssetBundleFile newFile = new AssetBundleFile();
-            newFile.Read(new AssetsFileReader(stream));
+            stream.Position = 0;
+            AssetBundleFile newFile = new AssetBundleFile(stream);
 
             if (freeOriginalStream)
             {
-                file.Reader.Close();
-                file.DataReader.Close();
+                file.Dispose();
             }
             return newFile;
         }

@@ -10,7 +10,7 @@ using System.Security.Cryptography;
 
 namespace AssetsTools.NET
 {
-    public sealed class UnityAesGcm : UnityCryptoBase
+    public sealed class UnityAesGcm : UnityCrypto<AesGcm>
     {
         private const int IVSize = 12;
         private const int LengthSize = sizeof(int);
@@ -19,7 +19,15 @@ namespace AssetsTools.NET
         private const int MaxEncryptionStepSize = MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE / 2;
         private const int MaxDecryptionStepSize = MaxEncryptionStepSize + NonPlainTextBytes;
 
-        private AesGcm _aes;
+        public override void SetDefaultHeader() { }
+
+        public override void ReadHeaderFrom(AssetsFileReader reader) { }
+
+        public override void CopyHeaderFrom(UnityCryptoBase toCopy) { }
+
+        public override void WriteHeader(AssetsFileWriter writer) { }
+
+        public override int GetHeaderSize() => 0;
 
         protected override void VerifyHexKey(string hexString)
         {
@@ -27,18 +35,32 @@ namespace AssetsTools.NET
                 throw new ArgumentException("GCM key must be 64 hex chars.");
         }
 
-        protected override IDisposable CreateCryptoEngine(byte[] key)
+        protected override AesGcm CreateCryptoEngine(byte[] key) => new AesGcm(key, TagSize);
+
+        public override bool SupportsCompression(CompressionType compressionType)
         {
-            _aes = new AesGcm(key, TagSize);
-            return _aes;
+            return compressionType switch
+            {
+                CompressionType.None or CompressionType.LZ4 or CompressionType.LZ4HC => true,
+                _ => false
+            };
         }
 
-        public override bool SupportsEncryptionWithoutCompression() => true;
+        public override CompressionType MainCompressionType() => CompressionType.LZ4;
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static int CeilingDiv(int a, int b) => (a + b - 1) / b;
+        public override int MaxPlainBlockSize() => MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE;
+
+        private static int CeilingDiv(int a, int b)
+        {
+            (int quo, int rem) = Math.DivRem(a, b);
+            if (rem != 0)
+                quo++;
+            return quo;
+        }
+
         protected override int CalculateEncryptionSize(int plainSize)
             => plainSize + CeilingDiv(plainSize, MaxEncryptionStepSize) * NonPlainTextBytes;
+
         private int CalculateDecryptionSize(int cipherSize)
             => cipherSize - CeilingDiv(cipherSize, MaxDecryptionStepSize) * NonPlainTextBytes;
 
@@ -58,7 +80,7 @@ namespace AssetsTools.NET
                 cipherCursor += cipherStepSize + NonPlainTextBytes;
                 cursor += cipherStepSize;
             }
-            return cipherCursor;
+            return cipherCursor; // must equal CalculateEncryptionSize(plainSize)
         }
 
         private void EncryptStep(ReadOnlySpan<byte> plainData, Span<byte> cipherSpan)
@@ -76,18 +98,18 @@ namespace AssetsTools.NET
 
             var tag = cipherSpan.Slice(IVSize + LengthSize + len, TagSize);
 
-            _aes.Encrypt(iv, plainData, ciphertext, tag);
+            CryptoEngine.Encrypt(iv, plainData, ciphertext, tag);
         }
 
         [SkipLocalsInit]
-        protected override int CompressAndEncrypt(ReadOnlySpan<byte> plainSpan, Stream compressedCipherStream, int blockIdx)
+        protected override (int cipherSize, CompressionType revisedCompression) CompressAndEncrypt(ReadOnlySpan<byte> plainSpan, Stream compressedCipherStream, int blockIdx, CompressionType compressionType)
         {
             var maxCompressedSize = CodecUtilities.LZ4MaxCompressedSize(plainSpan.Length);
             var buffer = ArrayPool<byte>.Shared.Rent(maxCompressedSize + NonPlainTextBytes);
             try
             {
                 var compressSpan = buffer.AsSpan(IVSize + LengthSize, maxCompressedSize + TagSize);
-                var compressedSize = CodecUtilities.CompressLZ4(plainSpan, compressSpan, CompressionType.LZ4);
+                var compressedSize = CodecUtilities.CompressLZ4(plainSpan, compressSpan, compressionType);
 
                 Span<byte> backupBytes = stackalloc byte[TagSize];
 
@@ -114,7 +136,7 @@ namespace AssetsTools.NET
                         backupBytes.CopyTo(compressSpan.Slice(cursor, TagSize));
                 }
 
-                return CalculateEncryptionSize(compressedSize);   
+                return (CalculateEncryptionSize(compressedSize), compressionType);
             }
             finally
             {
@@ -136,7 +158,7 @@ namespace AssetsTools.NET
 
                 var iv = cipherStepSpan[..IVSize];
 
-                int len = BitConverter.ToInt32(cipherStepSpan.Slice(IVSize, LengthSize));
+                int len = Unsafe.ReadUnaligned<int>(ref MemoryMarshal.GetReference(cipherStepSpan.Slice(IVSize, LengthSize)));
                 if (!BitConverter.IsLittleEndian) // always read little-endian
                     len = BinaryPrimitives.ReverseEndianness(len);
 
@@ -144,14 +166,14 @@ namespace AssetsTools.NET
 
                 var tag = cipherStepSpan.Slice(IVSize + LengthSize + len, TagSize);
 
-                _aes.Decrypt(iv, ciphertext, tag, plainSpan.Slice(plainCursor, len));
+                CryptoEngine.Decrypt(iv, ciphertext, tag, plainSpan.Slice(plainCursor, len));
 
                 plainCursor += len;
                 cursor += decipherStepSize;
             }
         }
 
-        protected override void DecryptAndDecompress(ReadOnlySpan<byte> compressedCipherSpan, Span<byte> plainSpan, int blockIdx)
+        protected override void DecryptAndDecompress(ReadOnlySpan<byte> compressedCipherSpan, CompressionType compressionType, Span<byte> plainSpan, int blockIdx)
         {
             int cipherSize = compressedCipherSpan.Length;
             int decipherSize = CalculateDecryptionSize(cipherSize);

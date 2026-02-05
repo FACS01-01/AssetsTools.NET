@@ -214,7 +214,7 @@ namespace AssetsTools.NET
         private string ReadNullTerminatedSlow()
         {
             using var collector = new TempBuffer.ByteCollector(256);
-            Span<byte> readBuffer = stackalloc byte[64];
+            Span<byte> readBuffer = stackalloc byte[16];
 
             while (true)
             {

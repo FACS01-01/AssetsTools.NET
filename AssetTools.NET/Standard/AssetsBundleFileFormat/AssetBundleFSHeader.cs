@@ -24,10 +24,27 @@ namespace AssetsTools.NET
         /// 0x40: Has directory info. Should always be true for 5.2+. <br/>
         /// 0x80: Block and directory info is at end. The Unity editor does not usually use this.
         /// </summary>
-        public AssetBundleFSHeaderFlags Flags { get; set; } // todo enum
+        public AssetBundleFSHeaderFlags Flags { get; set; }
 
-        public void Read(AssetsFileReader reader)
+        public AssetBundleFSHeader()
         {
+            Flags = AssetBundleFSHeaderFlags.None; // default Decompressed, no DirInfos
+            CompressedSize = 16 + 4; // default AssetBundleBlockAndDirInfo
+            DecompressedSize = CompressedSize;
+
+            TotalFileSize =
+                AssetBundleHeader.HeaderSignature.Length + 1 // default AssetBundleHeader
+                + 4
+                + AssetBundleHeader.DefaultGeneration.Length + 1
+                + AssetBundleHeader.DefaultEngine.Length + 1
+                + 8 + 4 + 4 + 4; // AssetBundleFSHeader (constant size)
+            TotalFileSize = (TotalFileSize + 15) & ~15; // default AssetBundleHeader.Version (7) requires align16
+            TotalFileSize += CompressedSize;
+        }
+        public AssetBundleFSHeader(AssetsFileReader reader)
+        {
+            reader.BigEndian = true;
+
             TotalFileSize = reader.ReadInt64();
             CompressedSize = reader.ReadUInt32();
             DecompressedSize = reader.ReadUInt32();
@@ -36,6 +53,8 @@ namespace AssetsTools.NET
 
         public void Write(AssetsFileWriter writer)
         {
+            writer.BigEndian = true;
+
             writer.Write(TotalFileSize);
             writer.Write(CompressedSize);
             writer.Write(DecompressedSize);

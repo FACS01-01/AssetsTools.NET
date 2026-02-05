@@ -7,9 +7,12 @@ namespace AssetsTools.NET
 {
     public class SegmentStream : Stream, StreamExtensions.IStreamCopyToExactly, StreamExtensions.IStreamTryGetBuffer
     {
-        public SegmentStream(Stream baseStream, long baseOffset, long length = -1, bool canWrite = true, bool leaveOpen = true)
+        public SegmentStream(Stream baseStream, long baseOffset = -1, long length = -1, bool canWrite = true, bool leaveOpen = true)
         {
             baseStream.ThrowIfCantSeek();
+
+            if (baseOffset == -1)
+                baseOffset = baseStream.Position;
 
             if (baseOffset < 0 || baseOffset > baseStream.Length)
                 throw new ArgumentOutOfRangeException(nameof(baseOffset));

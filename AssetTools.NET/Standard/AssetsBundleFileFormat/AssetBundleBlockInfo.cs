@@ -17,7 +17,7 @@ namespace AssetsTools.NET
         /// First 6 bits (0x3f mask): Compression mode. 0 for uncompressed, 1 for LZMA, 2/3 for LZ4/LZ4HC. <br/>
         /// 0x40: Streamed if unset (will be read in blocks) <br/>
         /// </summary>
-        public ushort Flags { get; set; }
+        public ushort Flags { get; set; }//
         public CompressionType GetCompressionType() => (CompressionType)(Flags & 0x3F);
     }
 }

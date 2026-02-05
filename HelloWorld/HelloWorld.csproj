@@ -10,6 +10,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="NativeCompressions.LZ4" Version="0.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\AssetTools.NET\AssetsTools.NET.csproj" />
   </ItemGroup>
 

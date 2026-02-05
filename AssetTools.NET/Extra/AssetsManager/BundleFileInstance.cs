@@ -31,14 +31,9 @@ namespace AssetsTools.NET.Extra
             path = Path.GetFullPath(filePath);
             name = Path.GetFileName(path);
 
-            file = new AssetBundleFile();
-            file.Read(new AssetsFileReader(stream));
+            file = new AssetBundleFile(stream, true, unpackIfPacked);
 
             originalCompression = file.GetCompressionType();
-            if (file.Header != null && file.DataIsCompressed && unpackIfPacked)
-            {
-                file = BundleHelper.UnpackBundle(file);
-            }
 
             loadedAssetsFiles = new List<AssetsFileInstance>();
         }
@@ -46,6 +41,18 @@ namespace AssetsTools.NET.Extra
         public BundleFileInstance(FileStream stream, bool unpackIfPacked = true)
             : this(stream, stream.Name, unpackIfPacked)
         {
+        }
+
+        public BundleFileInstance(string filePath, bool unpackIfPacked = true)
+        {
+            path = Path.GetFullPath(filePath);
+            name = Path.GetFileName(path);
+
+            file = new AssetBundleFile(path, unpackIfPacked);
+
+            originalCompression = file.GetCompressionType();
+
+            loadedAssetsFiles = new List<AssetsFileInstance>();
         }
     }
 }

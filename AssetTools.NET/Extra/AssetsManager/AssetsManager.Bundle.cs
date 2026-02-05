@@ -4,10 +4,7 @@ namespace AssetsTools.NET.Extra
 {
     public partial class AssetsManager
     {
-        public static string GetBundleLookupKey(string path)
-        {
-            return Path.GetFullPath(path);
-        }
+        public static string GetBundleLookupKey(string path) => Path.GetFullPath(path);
 
         /// <summary>
         /// Load a <see cref="BundleFileInstance"/> from a stream with a path.
@@ -63,7 +60,23 @@ namespace AssetsTools.NET.Extra
         /// <returns>The loaded <see cref="BundleFileInstance"/>.</returns>
         public BundleFileInstance LoadBundleFile(string path, bool unpackIfPacked = true)
         {
-            return LoadBundleFile(File.OpenRead(path), unpackIfPacked);
+            path = Path.GetFullPath(path);
+
+            BundleFileInstance bunInst;
+            if (BundleLookup.TryGetValue(path, out bunInst))
+                return bunInst;
+
+            bunInst = new BundleFileInstance(path, unpackIfPacked);
+            lock (BundleLookup)
+            {
+                lock (Bundles)
+                {
+                    BundleLookup[path] = bunInst;
+                    Bundles.Add(bunInst);
+                }
+            }
+
+            return bunInst;
         }
 
         /// <summary>
@@ -76,7 +89,7 @@ namespace AssetsTools.NET.Extra
             string lookupKey = GetBundleLookupKey(path);
             if (BundleLookup.TryGetValue(lookupKey, out BundleFileInstance bunInst))
             {
-                bunInst.file.Close();
+                bunInst.file.Dispose();
 
                 foreach (AssetsFileInstance assetsInst in bunInst.loadedAssetsFiles)
                 {
@@ -103,7 +116,7 @@ namespace AssetsTools.NET.Extra
         /// <returns>True if the file was found and closed, and false if it wasn't found.</returns>
         public bool UnloadBundleFile(BundleFileInstance bunInst)
         {
-            bunInst.file.Close();
+            bunInst.file.Dispose();
 
             foreach (AssetsFileInstance assetsInst in bunInst.loadedAssetsFiles)
             {
@@ -139,7 +152,7 @@ namespace AssetsTools.NET.Extra
             {
                 foreach (BundleFileInstance bunInst in Bundles)
                 {
-                    bunInst.file.Close();
+                    bunInst.file.Dispose();
 
                     foreach (AssetsFileInstance assetsInst in bunInst.loadedAssetsFiles)
                     {

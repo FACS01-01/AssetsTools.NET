@@ -2,201 +2,91 @@
 using AssetsTools.NET.Standard.IO.Extensions;
 using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace AssetsTools.NET
 {
-    public abstract class UnityCryptoBase
+    /// <summary>
+    /// Base class for Unity Encryption.
+    /// </summary>
+    public abstract class UnityCryptoBase : IDisposable
     {
-        private const string DefaultSignature = "#$unity3dchina!@";
-        private static readonly byte[] DefaultInfoBytes = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xA6, 0xB1, 0xDE, 0x48, 0x9E, 0x2B, 0x53, 0x5C];
-        private static readonly byte[] DefaultInfoKey = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10];
-        private static readonly byte[] DefaultSignatureBytes = Encoding.UTF8.GetBytes(DefaultSignature);
-        private static readonly byte[] DefaultSignatureKey = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10];
-
-        public uint Value;
-        public readonly byte[] InfoBytes = new byte[16];
-        public readonly byte[] InfoKey = new byte[16];
-        public byte DummyByte1;
-        public readonly byte[] SignatureBytes = new byte[16];
-        public readonly byte[] SignatureKey = new byte[16];
-        public byte DummyByte2;
-
-        private IDisposable? _cryptoEngine;
-        private string _hexKey = string.Empty;
-        private bool _initBytes = false;
-
-        protected UnityCryptoBase(AssetsFileReader reader)
+        public void Dispose()
         {
-            Value = reader.ReadUInt32();
-            reader.ReadExactly(InfoBytes);
-            reader.ReadExactly(InfoKey);
-            DummyByte1 = reader.ReadByte();
-            reader.ReadExactly(SignatureBytes);
-            reader.ReadExactly(SignatureKey);
-            DummyByte2 = reader.ReadByte();
-
-            _initBytes = true;
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
 
-        protected UnityCryptoBase(UnityCryptoBase toCopy)
-        {
-            Value = toCopy.Value;
-            toCopy.InfoBytes.CopyTo(InfoBytes);
-            toCopy.InfoKey.CopyTo(InfoKey);
-            DummyByte1 = toCopy.DummyByte1;
-            toCopy.SignatureBytes.CopyTo(SignatureBytes);
-            toCopy.SignatureKey.CopyTo(SignatureKey);
-            DummyByte2 = toCopy.DummyByte2;
-
-            _initBytes = toCopy._initBytes;
-        }
-
-        protected UnityCryptoBase() { }
-
-        ~UnityCryptoBase()
-        {
-            _cryptoEngine?.Dispose();
-        }
+        protected abstract void Dispose(bool disposing);
 
         /// <summary>
-        /// Checks if the cryptographic engine is available for use.
+        /// Resets crypto header to its default values.
         /// </summary>
-        public bool IsUsable => _cryptoEngine != null;
+        public abstract void SetDefaultHeader();
+
+        /// <summary>
+        /// Read crypto header from a <see cref="AssetsFileReader"/>.
+        /// </summary>
+        public abstract void ReadHeaderFrom(AssetsFileReader reader);
+
+        /// <summary>
+        /// Copy crypto header from an existing <see cref="UnityCryptoBase"/> instance.
+        /// </summary>
+        public abstract void CopyHeaderFrom(UnityCryptoBase toCopy);
+
+        /// <summary>
+        /// Write crypto header into a <see cref="AssetsFileWriter"/>.
+        /// </summary>
+        public abstract void WriteHeader(AssetsFileWriter writer);
+
+        /// <summary>
+        /// Get the amount of bytes used by this crypto header.
+        /// </summary>
+        public abstract int GetHeaderSize();
+
+        /// <summary>
+        /// Checks if the crypto engine is operational.
+        /// </summary>
+        public abstract bool IsUsable();
 
         /// <summary>
         /// Gets the hexadecimal representation of the key.
         /// </summary>
-        public string GetKey() => _hexKey;
+        public abstract string GetKey();
 
         /// <summary>
         /// Sets the cryptographic key using the specified hexadecimal string.
         /// </summary>
-        public void SetKey(string hexString)
-        {
-            _cryptoEngine?.Dispose();
-            _cryptoEngine = null;
-            var oldKey = _hexKey;
-            try
-            {
-                SetKeyMayThrow(hexString);
-            }
-            catch
-            {
-                _cryptoEngine?.Dispose();
-                _cryptoEngine = null;
-                _hexKey = oldKey;
-                throw;
-            }
-        }
+        public abstract void SetKey(string hexString);
 
         /// <summary>
-        /// Attempts to set the cryptographic key using the specified hexadecimal string.
+        /// Attempts to set the cryptographic key using the provided hexadecimal string.
         /// </summary>
-        /// <remarks>
-        /// If the operation fails, the previous key is restored and any associated cryptographic resources are reset.
-        /// </remarks>
         /// <returns><see langword="true"/> if the key was set successfully; otherwise, <see langword="false"/>.</returns>
         public bool TrySetKey(string hexString)
         {
-            _cryptoEngine?.Dispose();
-            _cryptoEngine = null;
-            var oldKey = _hexKey;
             try
             {
-                SetKeyMayThrow(hexString);
+                SetKey(hexString);
                 return true;
             }
-            catch
-            {
-                _cryptoEngine?.Dispose();
-                _cryptoEngine = null;
-                _hexKey = oldKey;
-                return false;
-            }
-        }
-
-        private void SetKeyMayThrow(string hexString)
-        {
-            VerifyHexKey(hexString); // check if valid length
-            var key = Convert.FromHexString(hexString); // checks if valid hex
-            _cryptoEngine = CreateCryptoEngine(key);
-            _hexKey = hexString;
-            if (!_initBytes)
-            {
-                XorDefaultKey();
-                _initBytes = true;
-            }
-            InitCryptoEngine();
-        }
-
-        private void XorDefaultKey()
-        {
-            using var aes = Aes.Create();
-            aes.Mode = CipherMode.ECB;
-            aes.Key = Convert.FromHexString(_hexKey);
-            using var encryptor = aes.CreateEncryptor();
-
-            XorWithKey(InfoKey, InfoBytes);
-            XorWithKey(SignatureKey, SignatureBytes);
-
-            void XorWithKey(byte[] key, byte[] data)
-            {
-                key = encryptor.TransformFinalBlock(key, 0, key.Length);
-                for (int i = 0; i < 0x10; i++)
-                    data[i] ^= key[i];
-            }
-        }
-
-        protected void ApplyDefaultBytes()
-        {
-            SetDefaultBytes();
-            _initBytes = false;
+            catch { return false; }
         }
 
         /// <summary>
-        /// Resets all related byte arrays and associated fields to their default values.
+        /// Determines whether encryption can be applied to plaintext with the provided compression.
         /// </summary>
-        protected virtual void SetDefaultBytes()
-        {
-            Value = 0;
-            DefaultInfoBytes.CopyTo(InfoBytes);
-            DefaultInfoKey.CopyTo(InfoKey);
-            DummyByte1 = 0;
-            DefaultSignatureBytes.CopyTo(SignatureBytes);
-            DefaultSignatureKey.CopyTo(SignatureKey);
-            DummyByte2 = 0;
-        }
+        public abstract bool SupportsCompression(CompressionType compressionType);
 
         /// <summary>
-        /// Validates that the specified string has the correct length, and if not, <see langword="throw"/>.
+        /// Returns the preferred compression type for this crypto engine (should be constant).
         /// </summary>
-        protected abstract void VerifyHexKey(string hexString);
+        public abstract CompressionType MainCompressionType();
 
         /// <summary>
-        /// Creates a new cryptographic engine instance using the specified key.
+        /// Maximum plaintext's block size that can be encrypted at once.
         /// </summary>
-        /// <param name="key">The byte array representing the provided hex string key.</param>
-        /// <remarks>
-        /// If you need to initialize any additional resources after creating the engine, override <see cref="InitCryptoEngine"/>.
-        /// </remarks>
-        protected abstract IDisposable CreateCryptoEngine(byte[] key);
-
-        /// <summary>
-        /// Initializes the cryptographic engine and its resources for use by the current instance.
-        /// </summary>
-        /// <remarks>
-        /// Always called after <see cref="CreateCryptoEngine"/>.
-        /// </remarks>
-        protected virtual void InitCryptoEngine() { }
-
-        /// <summary>
-        /// Determines whether encryption can be applied without requiring compression.
-        /// </summary>
-        public abstract bool SupportsEncryptionWithoutCompression();
+        public abstract int MaxPlainBlockSize();
 
         /// <summary>
         /// Calculates the number of bytes required to store encrypted data for a given plaintext size.
@@ -212,25 +102,24 @@ namespace AssetsTools.NET
         /// <param name="compressionType">The type of compression to apply to the data.</param>
         /// <param name="compressedCipherStream">The output stream to which the compressed and encrypted data will be written.</param>
         /// <param name="blockIdx">The zero-based index of the data block being processed.</param>
-        public virtual int CompressAndEncrypt(Stream plainData, long plainSize, CompressionType compressionType,
+        public virtual (int cipherSize, CompressionType revisedCompression) CompressAndEncrypt(Stream plainData, long plainSize, CompressionType compressionType,
             Stream compressedCipherStream, int blockIdx)
         {
-            if (!IsUsable)
+            if (!IsUsable())
                 throw new InvalidOperationException("Crypto engine is not initialized. Set a valid key before using.");
             ArgumentOutOfRangeException.ThrowIfGreaterThan(plainSize, int.MaxValue, nameof(plainSize));
+            if (!SupportsCompression(compressionType))
+                throw new NotSupportedException($"Unsupported compression type for {GetType()}.");
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(plainSize, MaxPlainBlockSize(), nameof(plainSize));
+
             int _plainSize = (int)plainSize;
 
             switch (compressionType)
             {
                 case CompressionType.None:
-                    if (!SupportsEncryptionWithoutCompression())
-                        throw new NotSupportedException($"{GetType()} doesn't support encryption without compression.");
-                    return Encrypt(plainData, _plainSize, compressedCipherStream, blockIdx);
-                case CompressionType.LZ4:
-                case CompressionType.LZ4HC:
-                    return CompressAndEncrypt(plainData, _plainSize, compressedCipherStream, blockIdx);
+                    return (Encrypt(plainData, _plainSize, compressedCipherStream, blockIdx), CompressionType.None);
                 default:
-                    throw new NotSupportedException($"Unsupported compression type for {GetType()}.");
+                    return CompressAndEncrypt(plainData, _plainSize, compressedCipherStream, blockIdx, compressionType);
             }
         }
 
@@ -286,11 +175,11 @@ namespace AssetsTools.NET
         /// <param name="blockIdx">The zero-based index of the input data block.</param>
         protected abstract int Encrypt(ReadOnlySpan<byte> plainData, Span<byte> cipherSpan, int blockIdx);
 
-        protected virtual int CompressAndEncrypt(Stream plainData, int plainSize, Stream compressedCipherStream, int blockIdx)
+        protected virtual (int cipherSize, CompressionType revisedCompression) CompressAndEncrypt(Stream plainData, int plainSize, Stream compressedCipherStream, int blockIdx, CompressionType compressionType)
         {
             if (plainData.TryReadBuffer(plainSize, out ReadOnlySpan<byte> plainSpan))
             {
-                return CompressAndEncrypt(plainSpan, compressedCipherStream, blockIdx);
+                return CompressAndEncrypt(plainSpan, compressedCipherStream, blockIdx, compressionType);
             }
 
             var buffer = ArrayPool<byte>.Shared.Rent(plainSize);
@@ -298,7 +187,7 @@ namespace AssetsTools.NET
             {
                 var plainSpan2 = buffer.AsSpan(0, plainSize);
                 plainData.ReadExactly(plainSpan2);
-                return CompressAndEncrypt(plainSpan2, compressedCipherStream, blockIdx);
+                return CompressAndEncrypt(plainSpan2, compressedCipherStream, blockIdx, compressionType);
             }
             finally
             {
@@ -312,8 +201,9 @@ namespace AssetsTools.NET
         /// <param name="plainSpan">The input data to be compressed and then encrypted.</param>
         /// <param name="compressedCipherStream">The output span to receive the compressed and encrypted data.</param>
         /// <param name="blockIdx">The zero-based index of the input data block.</param>
-        protected abstract int CompressAndEncrypt(ReadOnlySpan<byte> plainSpan, Stream compressedCipherStream, int blockIdx);
-        
+        /// <param name="compressionType">The type of compression to apply to the data.</param>
+        protected abstract (int cipherSize, CompressionType revisedCompression) CompressAndEncrypt(ReadOnlySpan<byte> plainSpan, Stream compressedCipherStream, int blockIdx, CompressionType compressionType);
+
         /// <summary>
         /// Decrypts and decompresses a block of data from the specified stream using the given compression type,
         /// writing the resulting plain data to the provided output stream.
@@ -327,27 +217,20 @@ namespace AssetsTools.NET
         public virtual void DecryptAndDecompress(Stream compressedCipherData, long compressedCipherSize, long plainSize,
             CompressionType compressionType, Stream plainStream, int blockIdx)
         {
-            if (!IsUsable)
+            if (!IsUsable())
                 throw new InvalidOperationException("Crypto engine is not initialized. Set a valid key before using.");
             ArgumentOutOfRangeException.ThrowIfGreaterThan(compressedCipherSize, int.MaxValue, nameof(compressedCipherSize));
             ArgumentOutOfRangeException.ThrowIfGreaterThan(plainSize, int.MaxValue, nameof(plainSize));
+            if (!SupportsCompression(compressionType))
+                throw new NotSupportedException($"Unsupported compression type for {GetType()}.");
+
             int _compressedCipherSize = (int)compressedCipherSize;
             int _plainSize = (int)plainSize;
 
-            switch (compressionType)
-            {
-                case CompressionType.None:
-                    if (!SupportsEncryptionWithoutCompression())
-                        throw new NotSupportedException($"{GetType()} doesn't support encryption without compression.");
-                    Decrypt(compressedCipherData, _compressedCipherSize, _plainSize, plainStream, blockIdx);
-                    break;
-                case CompressionType.LZ4:
-                case CompressionType.LZ4HC:
-                    DecryptAndDecompress(compressedCipherData, _compressedCipherSize, _plainSize, plainStream, blockIdx);
-                    break;
-                default:
-                    throw new NotSupportedException($"Unsupported compression type for {GetType()}.");
-            }
+            if (compressionType == CompressionType.None)
+                Decrypt(compressedCipherData, _compressedCipherSize, _plainSize, plainStream, blockIdx);
+            else
+                DecryptAndDecompress(compressedCipherData, _compressedCipherSize, _plainSize, compressionType, plainStream, blockIdx);
         }
 
         protected virtual void Decrypt(Stream cipherData, int cipherSize, int plainSize, Stream plainStream, int blockIdx)
@@ -401,11 +284,11 @@ namespace AssetsTools.NET
         /// <param name="blockIdx">The zero-based index of the input data block.</param>
         protected abstract void Decrypt(ReadOnlySpan<byte> cipherSpan, Span<byte> plainSpan, int blockIdx);
 
-        protected virtual void DecryptAndDecompress(Stream compressedCipherData, int compressedCipherSize, int plainSize, Stream plainStream, int blockIdx)
+        protected virtual void DecryptAndDecompress(Stream compressedCipherData, int compressedCipherSize, int plainSize, CompressionType compressionType, Stream plainStream, int blockIdx)
         {
             if (plainStream.TryGetRemainingBuffer(out var seg) && seg.Count >= plainSize)
             {
-                DecryptAndDecompress(compressedCipherData, compressedCipherSize, seg[..plainSize], blockIdx);
+                DecryptAndDecompress(compressedCipherData, compressedCipherSize, compressionType, seg[..plainSize], blockIdx);
                 plainStream.Position += plainSize;
                 return;
             }
@@ -414,7 +297,7 @@ namespace AssetsTools.NET
             try
             {
                 Span<byte> decompressSpan = buffer.AsSpan(0, plainSize);
-                DecryptAndDecompress(compressedCipherData, compressedCipherSize, decompressSpan, blockIdx);
+                DecryptAndDecompress(compressedCipherData, compressedCipherSize, compressionType, decompressSpan, blockIdx);
                 plainStream.Write(decompressSpan);
             }
             finally
@@ -423,11 +306,11 @@ namespace AssetsTools.NET
             }
         }
 
-        protected virtual void DecryptAndDecompress(Stream compressedCipherData, int compressedCipherSize, Span<byte> plainSpan, int blockIdx)
+        protected virtual void DecryptAndDecompress(Stream compressedCipherData, int compressedCipherSize, CompressionType compressionType, Span<byte> plainSpan, int blockIdx)
         {
             if (compressedCipherData.TryReadBuffer(compressedCipherSize, out ReadOnlySpan<byte> compressedCipherSpan))
             {
-                DecryptAndDecompress(compressedCipherSpan, plainSpan, blockIdx);
+                DecryptAndDecompress(compressedCipherSpan, compressionType, plainSpan, blockIdx);
                 return;
             }
 
@@ -436,7 +319,7 @@ namespace AssetsTools.NET
             {
                 var compressedCipherSpan2 = buffer.AsSpan(0, compressedCipherSize);
                 compressedCipherData.ReadExactly(compressedCipherSpan2);
-                DecryptAndDecompress(compressedCipherSpan2, plainSpan, blockIdx);
+                DecryptAndDecompress(compressedCipherSpan2, compressionType, plainSpan, blockIdx);
             }
             finally
             {
@@ -448,86 +331,84 @@ namespace AssetsTools.NET
         /// Decrypts and decompresses the specified input data block.
         /// </summary>
         /// <param name="compressedCipherSpan">The input data to be decrypted and then decompressed.</param>
+        /// <param name="compressionType">The type of compression applied to the data.</param>
         /// <param name="plainSpan">The output span to receive the decrypted and decompressed data.</param>
         /// <param name="blockIdx">The zero-based index of the input data block.</param>
-        protected abstract void DecryptAndDecompress(ReadOnlySpan<byte> compressedCipherSpan, Span<byte> plainSpan, int blockIdx);
+        protected abstract void DecryptAndDecompress(ReadOnlySpan<byte> compressedCipherSpan, CompressionType compressionType, Span<byte> plainSpan, int blockIdx);
 
         /// <summary>
-        /// Instantiate a crypto engine of the specified type, ready to work for the read bundle with known key.
+        /// Creates a new instance of a <see cref="UnityCryptoBase"/>-derived object,
+        /// optionally initializing it from a reader and/or setting a custom key.
         /// </summary>
-        /// <param name="cryptoType"></param>
-        /// <param name="reader"></param>
-        /// <param name="key"></param>
-        public static UnityCryptoBase Create(Type cryptoType, AssetsFileReader reader, string key)
+        /// <param name="reader">An optional <see cref="AssetsFileReader"/> to initialize the crypto engine's header.
+        /// If null, <see cref="SetDefaultHeader"/> is used.</param>
+        /// <param name="key">An optional key to set for the crypto engine.</param>
+        public static T Create<T>(AssetsFileReader? reader = null, string? key = null) where T : UnityCryptoBase, new()
         {
-            ThrowIfNotCryptoType(cryptoType);
+            T newCrypto = new();
 
-            var instance = (UnityCryptoBase)Activator.CreateInstance(cryptoType, reader);
-            instance.SetKey(key);
-            return instance;
-        }
+            if (reader != null)
+                newCrypto.ReadHeaderFrom(reader);
+            else
+                newCrypto.SetDefaultHeader();
 
-        /// <summary>
-        /// Instantiate a crypto engine of the specified type, ready to work for the read bundle. Needs to set key later.
-        /// </summary>
-        /// <param name="cryptoType"></param>
-        /// <param name="reader"></param>
-        public static UnityCryptoBase Create(Type cryptoType, AssetsFileReader reader)
-        {
-            ThrowIfNotCryptoType(cryptoType);
+            if (key != null)
+                newCrypto.SetKey(key);
 
-            var instance = (UnityCryptoBase)Activator.CreateInstance(cryptoType, reader);
-            return instance;
+            return newCrypto;
         }
 
         /// <summary>
-        /// Instantiate a crypto engine of the specified type, with default byte data to work with any provided key.
+        /// Creates a new instance of a <see cref="UnityCryptoBase"/>-derived object,
+        /// copying the header from an existing instance.
         /// </summary>
-        /// <param name="cryptoType"></param>
-        /// <param name="key"></param>
-        /// <returns></returns>
-        public static UnityCryptoBase Create(Type cryptoType, string key)
+        /// <param name="toCopy">The crypto object from which to copy header data.</param>
+        public static T Create<T>(UnityCryptoBase toCopy) where T : UnityCryptoBase, new()
         {
-            ThrowIfNotCryptoType(cryptoType);
+            ArgumentNullException.ThrowIfNull(toCopy, nameof(toCopy));
 
-            var instance = (UnityCryptoBase)Activator.CreateInstance(cryptoType);
-            instance.ApplyDefaultBytes();
-            instance.SetKey(key);
-            return instance;
+            T newCrypto = new();
+
+            newCrypto.CopyHeaderFrom(toCopy);
+
+            return newCrypto;
+        }
+
+        private static Func<AssetsFileReader?, string?, UnityCryptoBase> DelegableCreate =
+            static (reader, key) => Create<UnityAesGcm>(reader, key);
+
+        /// <summary>
+        /// The <see cref="UnityCryptoBase"/>-derived type being used for <see cref="DefaultCreate"/>.
+        /// </summary>
+        public static Type CurrentDefaultCreateType { get; private set; } = typeof(UnityAesGcm);
+
+        /// <summary>
+        /// Set the <see cref="UnityCryptoBase"/>-derived type to be used for <see cref="DefaultCreate"/>.
+        /// </summary>
+        public static void SetDefaultCreate<T>() where T : UnityCryptoBase, new()
+        {
+            DelegableCreate = static (reader, key) => Create<T>(reader, key);
+            CurrentDefaultCreateType = typeof(T);
         }
 
         /// <summary>
-        /// Instantiate a crypto engine of the specified type, with default byte data to work with any provided key.
+        /// Check if the provided type is equal to <see cref="CurrentDefaultCreateType"/>.
         /// </summary>
-        /// <param name="cryptoType"></param>
-        /// <returns></returns>
-        public static UnityCryptoBase Create(Type cryptoType)
-        {
-            ThrowIfNotCryptoType(cryptoType);
+        public static bool IsDefaultCreateType<T>() where T : UnityCryptoBase
+            => IsDefaultCreateType(typeof(T));
 
-            var instance = (UnityCryptoBase)Activator.CreateInstance(cryptoType);
-            instance.ApplyDefaultBytes();
-            return instance;
-        }
+        /// <inheritdoc cref="IsDefaultCreateType{T}"/>
+        public static bool IsDefaultCreateType(Type T)
+            => T == CurrentDefaultCreateType;
 
         /// <summary>
-        /// Instantiate a crypto engine of the specified type, copying the byte data of an existing crypto engine.
+        /// Creates a new instance of <see cref="CurrentDefaultCreateType"/>,
+        /// optionally initializing it from a reader and/or setting a custom key.
         /// </summary>
-        /// <param name="cryptoType"></param>
-        /// <param name="toCopy"></param>
-        /// <returns></returns>
-        public static UnityCryptoBase Create(Type cryptoType, UnityCryptoBase toCopy)
-        {
-            ThrowIfNotCryptoType(cryptoType);
-
-            var instance = (UnityCryptoBase)Activator.CreateInstance(cryptoType, toCopy);
-            return instance;
-        }
-
-        private static void ThrowIfNotCryptoType(Type cryptoType)
-        {
-            if (!typeof(UnityCryptoBase).IsAssignableFrom(cryptoType))
-                throw new ArgumentException("Invalid crypto Type.");
-        }
+        /// <param name="reader">An optional <see cref="AssetsFileReader"/> to initialize the crypto engine's header.
+        /// If null, <see cref="SetDefaultHeader"/> is used.</param>
+        /// <param name="key">An optional key to set for the crypto engine.</param>
+        public static UnityCryptoBase DefaultCreate(AssetsFileReader? reader = null, string? key = null)
+            => DelegableCreate(reader, key);
     }
 }
