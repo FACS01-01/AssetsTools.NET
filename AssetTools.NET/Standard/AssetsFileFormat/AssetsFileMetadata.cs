@@ -51,7 +51,7 @@ namespace AssetsTools.NET
         /// </summary>
         /// <param name="reader">The reader to use.</param>
         /// <param name="header">The header to use.</param>
-        public void Read(AssetsFileReader reader, AssetsFileHeader header)
+        public void Read(BufferedBinaryReader reader, AssetsFileHeader header)
         {
             Read(reader, header.Version);
         }
@@ -61,7 +61,7 @@ namespace AssetsTools.NET
         /// </summary>
         /// <param name="reader">The reader to use.</param>
         /// <param name="version">The version of the file.</param>
-        public void Read(AssetsFileReader reader, uint version)
+        public void Read(BufferedBinaryReader reader, uint version)
         {
             _quickLookup = null;
 

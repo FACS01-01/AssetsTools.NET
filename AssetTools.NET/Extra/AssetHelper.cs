@@ -62,7 +62,7 @@ namespace AssetsTools.NET.Extra
         public static string GetAssetNameFast(AssetsFile file, ClassDatabaseFile cldb, AssetFileInfo info)
         {
             ClassDatabaseType type = cldb.FindAssetClassByID(info.TypeId);
-            AssetsFileReader reader = file.Reader;
+            BufferedBinaryReader reader = file.Reader;
 
             if (file.Metadata.TypeTreeEnabled)
             {

@@ -37,7 +37,7 @@ namespace AssetsTools.NET.Extra
         /// will select the top-most reader to lock on so that consumers that use a different
         /// reader but come from the same base stream will lock on the same object.
         /// </summary>
-        public AssetsFileReader LockReader => parentBundle != null ? parentBundle.file.DataReader : file.Reader;
+        public BufferedBinaryReader LockReader => parentBundle != null ? parentBundle.file.DataReader : file.Reader;
 
         public AssetsFileInstance(AssetsFile file, string filePath)
         {
@@ -52,7 +52,7 @@ namespace AssetsTools.NET.Extra
             path = Path.GetFullPath(filePath);
             name = Path.GetFileName(path);
             file = new AssetsFile();
-            file.Read(new AssetsFileReader(stream));
+            file.Read(new BufferedBinaryReader(stream));
             dependencyCache = new ConcurrentDictionary<int, AssetsFileInstance>();
         }
 
@@ -61,7 +61,7 @@ namespace AssetsTools.NET.Extra
             path = stream.Name;
             name = Path.GetFileName(path);
             file = new AssetsFile();
-            file.Read(new AssetsFileReader(stream));
+            file.Read(new BufferedBinaryReader(stream));
             dependencyCache = new ConcurrentDictionary<int, AssetsFileInstance>();
         }
 

@@ -182,7 +182,7 @@ namespace AssetsTools.NET.Extra
                 Stream previewStream = dirInfo.Replacer.GetPreviewStream();
                 lock (previewStream)
                 {
-                    return AssetsFile.IsAssetsFile(new AssetsFileReader(previewStream), 0, previewStream.Length);
+                    return AssetsFile.IsAssetsFile(new BufferedBinaryReader(previewStream), 0, previewStream.Length);
                 }
             }
             else

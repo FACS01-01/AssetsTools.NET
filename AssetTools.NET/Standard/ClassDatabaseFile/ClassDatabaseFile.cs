@@ -17,12 +17,12 @@ namespace AssetsTools.NET
         /// Read the <see cref="ClassDatabaseFile"/> with the provided reader.
         /// </summary>
         /// <param name="reader">The reader to use.</param>
-        public void Read(AssetsFileReader reader)
+        public void Read(BufferedBinaryReader reader)
         {
             Header ??= new ClassDatabaseFileHeader();
             Header.Read(reader);
 
-            AssetsFileReader dReader = GetDecompressedReader(reader);
+            BufferedBinaryReader dReader = GetDecompressedReader(reader);
             int classCount = dReader.ReadInt32();
             Classes = new List<ClassDatabaseType>(classCount);
             for (int i = 0; i < classCount; i++)
@@ -77,9 +77,9 @@ namespace AssetsTools.NET
             cStream.CopyTo(writer.BaseStream);
         }
 
-        private AssetsFileReader GetDecompressedReader(AssetsFileReader reader)
+        private BufferedBinaryReader GetDecompressedReader(BufferedBinaryReader reader)
         {
-            AssetsFileReader newReader = reader;
+            BufferedBinaryReader newReader = reader;
             if (Header.CompressionType != ClassFileCompressionType.Uncompressed)
             {
                 Stream ms;
@@ -96,7 +96,7 @@ namespace AssetsTools.NET
                     throw new Exception($"Class database is using invalid compression type {Header.CompressionType}!");
                 }
 
-                newReader = new AssetsFileReader(ms);
+                newReader = new BufferedBinaryReader(ms);
             }
 
             return newReader;

@@ -8,7 +8,7 @@ namespace AssetsTools.NET
     {
         public List<string> Strings { get; set; }
 
-        public void Read(AssetsFileReader reader)
+        public void Read(BufferedBinaryReader reader)
         {
             int stringCount = reader.ReadInt32();
             Strings = new List<string>(stringCount);

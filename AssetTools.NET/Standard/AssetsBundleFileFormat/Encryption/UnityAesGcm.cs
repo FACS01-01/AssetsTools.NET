@@ -21,7 +21,7 @@ namespace AssetsTools.NET
 
         public override void SetDefaultHeader() { }
 
-        public override void ReadHeaderFrom(AssetsFileReader reader) { }
+        public override void ReadHeaderFrom(BufferedBinaryReader reader) { }
 
         public override void CopyHeaderFrom(UnityCryptoBase toCopy) { }
 

@@ -1,5 +1,5 @@
 ﻿using AssetsTools.NET.Standard.IO.Extensions;
-using K4os.Compression.LZ4;
+using NativeCompressions;
 using SevenZip.Compression.LZMA;
 using System;
 using System.Buffers;
@@ -115,7 +115,7 @@ namespace AssetsTools.NET.Standard.Codecs
 
         public static void DecompressLZ4(ReadOnlySpan<byte> compressedData, Span<byte> decompressSpan)
         {
-            var size = LZ4Codec.Decode(compressedData, decompressSpan);
+            var size = LZ4.Block.Decompress(compressedData, decompressSpan);
             if (size != decompressSpan.Length)
                 throw new Exception($"Decompressed size mismatch, expected {decompressSpan.Length}, got {size}");
         }
@@ -211,7 +211,7 @@ namespace AssetsTools.NET.Standard.Codecs
                     byte[] compressLZ4 = CompressLZ4ToArray(decompressedData, decompressedSize, compressionLevel);
                     return compressLZ4.NewExposedMemoryStream();
                 case BackingStreamType.FileStream:
-                    FileStream fs = StreamExtensions.NewTempFileStream(LZ4Codec.MaximumOutputSize(decompressedSize));
+                    FileStream fs = StreamExtensions.NewTempFileStream(LZ4.GetMaxCompressedLength(decompressedSize));
                     CompressLZ4(decompressedData, decompressedSize, fs, compressionLevel);
                     fs.Position = 0;
                     return fs;
@@ -240,7 +240,7 @@ namespace AssetsTools.NET.Standard.Codecs
 
         public static byte[] CompressLZ4ToArray(ReadOnlySpan<byte> decompressedData, CompressionType compressionLevel)
         {
-            int maxCompressedSize = LZ4Codec.MaximumOutputSize(decompressedData.Length);
+            int maxCompressedSize = LZ4.GetMaxCompressedLength(decompressedData.Length);
 
             var buffer = ArrayPool<byte>.Shared.Rent(maxCompressedSize);
             try
@@ -278,7 +278,7 @@ namespace AssetsTools.NET.Standard.Codecs
 
         public static bool TryCompressLZ4(ReadOnlySpan<byte> decompressedData, CompressionType compressionLevel, out byte[] result)
         {
-            int maxCompressedSize = LZ4Codec.MaximumOutputSize(decompressedData.Length);
+            int maxCompressedSize = LZ4.GetMaxCompressedLength(decompressedData.Length);
 
             var buffer = ArrayPool<byte>.Shared.Rent(maxCompressedSize);
             try
@@ -323,7 +323,7 @@ namespace AssetsTools.NET.Standard.Codecs
 
         public static int CompressLZ4(ReadOnlySpan<byte> decompressedData, Stream compressStream, CompressionType compressionLevel)
         {
-            int maxCompressedSize = LZ4Codec.MaximumOutputSize(decompressedData.Length);
+            int maxCompressedSize = LZ4.GetMaxCompressedLength(decompressedData.Length);
 
             if (compressStream.TryGetRemainingBuffer(out var seg) && seg.Count >= maxCompressedSize)
             {
@@ -348,8 +348,9 @@ namespace AssetsTools.NET.Standard.Codecs
 
         public static int CompressLZ4(ReadOnlySpan<byte> decompressedData, Span<byte> compressSpan, CompressionType compressionLevel)
         {
-            LZ4Level comprLvl = compressionLevel == CompressionType.LZ4HC ? LZ4Level.L12_MAX : LZ4Level.L00_FAST;
-            int compressedSize = LZ4Codec.Encode(decompressedData, compressSpan, comprLvl);
+            var options = LZ4CompressionOptions.Default with
+            { CompressionLevel = compressionLevel == CompressionType.LZ4HC ? 12 : 0 };
+            int compressedSize = LZ4.Compress(decompressedData, compressSpan, options);
             if (compressedSize < 0)
                 throw new Exception($"{nameof(compressSpan)} size too small to hold encoded {nameof(decompressedData)}.");
             return compressedSize;
@@ -404,7 +405,7 @@ namespace AssetsTools.NET.Standard.Codecs
             return compressedSize;
         }
 
-        public static int LZ4MaxCompressedSize(int decompressedDataSize) => LZ4Codec.MaximumOutputSize(decompressedDataSize);
+        public static int LZ4MaxCompressedSize(int decompressedDataSize) => LZ4.GetMaxCompressedLength(decompressedDataSize);
     }
 
     public enum CompressionType : byte

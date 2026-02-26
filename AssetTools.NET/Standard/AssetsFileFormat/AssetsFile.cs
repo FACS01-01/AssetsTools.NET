@@ -20,21 +20,21 @@ namespace AssetsTools.NET
         /// <summary>
         /// The <see cref="AssetsFileReader"/> that reads the file.
         /// </summary>
-        public AssetsFileReader Reader { get; set; }
+        public BufferedBinaryReader Reader { get; set; }
 
         /// <summary>
         /// Closes the reader.
         /// </summary>
         public void Close()
         {
-            Reader.Close();
+            Reader.Dispose();
         }
 
         /// <summary>
         /// Read the <see cref="AssetsFile"/> with the provided reader.
         /// </summary>
         /// <param name="reader">The reader to use.</param>
-        public void Read(AssetsFileReader reader)
+        public void Read(BufferedBinaryReader reader)
         {
             Reader = reader;
 
@@ -51,7 +51,7 @@ namespace AssetsTools.NET
         /// <param name="stream">The stream to use.</param>
         public void Read(Stream stream)
         {
-            Read(new AssetsFileReader(stream));
+            Read(new BufferedBinaryReader(stream));
         }
 
         /// <summary>
@@ -214,7 +214,7 @@ namespace AssetsTools.NET
         /// <returns>True if the file is an assets file, otherwise false.</returns>
         public static bool IsAssetsFile(string filePath)
         {
-            using AssetsFileReader reader = new AssetsFileReader(filePath);
+            using BufferedBinaryReader reader = new(filePath);
             return IsAssetsFile(reader, 0, reader.BaseStream.Length);
         }
 
@@ -225,7 +225,7 @@ namespace AssetsTools.NET
         /// <param name="offset">The offset to start at (this value cannot be -1).</param>
         /// <param name="length">The length of the file. You can use <c>reader.BaseStream.Length</c> for this.</param>
         /// <returns></returns>
-        public static bool IsAssetsFile(AssetsFileReader reader, long offset, long length)
+        public static bool IsAssetsFile(BufferedBinaryReader reader, long offset, long length)
         {
             reader.BigEndian = true;
 

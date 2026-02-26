@@ -10,7 +10,7 @@ namespace AssetsTools.NET
         {
             this.data = data;
         }
-        public Hash128(AssetsFileReader reader)
+        public Hash128(BufferedBinaryReader reader)
         {
             data = reader.ReadBytes(16);
         }

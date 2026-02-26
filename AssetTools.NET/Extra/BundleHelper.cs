@@ -9,7 +9,7 @@ namespace AssetsTools.NET.Extra
         {
             bundle.GetFileRange(index, out long offset, out long length);
 
-            AssetsFileReader reader = bundle.DataReader;
+            var reader = bundle.DataReader;
             reader.Position = offset;
             return reader.ReadBytes((int)length);
         }
@@ -27,7 +27,7 @@ namespace AssetsTools.NET.Extra
         {
             bundle.GetFileRange(index, out long offset, out long length);
             Stream stream = new SegmentStream(bundle.DataReader.BaseStream, offset, length);
-            AssetsFileReader reader = new AssetsFileReader(stream);
+            BufferedBinaryReader reader = new(stream);
             AssetsFile file = new AssetsFile();
             file.Read(reader);
             return file;

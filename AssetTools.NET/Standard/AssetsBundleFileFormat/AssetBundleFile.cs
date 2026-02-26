@@ -21,13 +21,13 @@ namespace AssetsTools.NET
         /// <summary>
         /// Reader for data block of bundle
         /// </summary>
-        public AssetsFileReader DataReader { get; set; }
+        public BufferedBinaryReader DataReader { get; set; }
         /// <summary>
         /// Is data reader reading compressed or encrypted data?
         /// </summary>
         public bool DataIsEncoded { get; set; }
 
-        public AssetsFileReader Reader;
+        public BufferedBinaryReader Reader;
 
         public void Dispose()
         {
@@ -85,7 +85,7 @@ namespace AssetsTools.NET
         /// <param name="unpackIfPacked">Whether to unpack the Data Block immediately.</param>
         public AssetBundleFile(Stream source, bool leaveStreamOpen = true, bool unpackIfPacked = false)
         {
-            Reader = new AssetsFileReader(source, leaveStreamOpen) { BigEndian = true };
+            Reader = new(source, leaveOpen: leaveStreamOpen) { BigEndian = true };
             Reader.Position = 0;
 
             Header = new AssetBundleHeader(Reader);
@@ -102,11 +102,10 @@ namespace AssetsTools.NET
             {
                 var compressedSize = Header.FileStreamHeader.CompressedSize;
                 var decompressedSize = Header.FileStreamHeader.DecompressedSize;
-                Console.WriteLine($"offset: {Reader.BaseStream.Position}; compressedSize: {compressedSize}; decompressedSize: {decompressedSize}");//
                 var blocksInfoStream = CodecUtilities.DecompressToNew(Reader.BaseStream, compressedSize, decompressedSize,
                     Header.GetCompressionType(), BackingStreamType.MemoryStream, false);
 
-                using (var memReader = new AssetsFileReader(blocksInfoStream))
+                using (var memReader = new BufferedBinaryReader(blocksInfoStream))
                 {
                     memReader.Position = 0;
                     BlockAndDirInfo = new(memReader, hasDirInfo);
@@ -116,7 +115,7 @@ namespace AssetsTools.NET
             if (Header.CryptoHandler == null && GetCompressionType() == CompressionType.None)
             {
                 SegmentStream dataStream = new SegmentStream(Reader.BaseStream, Header.GetFileDataOffset(), leaveOpen: leaveStreamOpen);
-                DataReader = new AssetsFileReader(dataStream);
+                DataReader = new(dataStream);
                 DataIsEncoded = false;
             }
             else
@@ -124,17 +123,15 @@ namespace AssetsTools.NET
                 var BlockStream = new ReadOnlyBlockStream(Reader.BaseStream, Header.GetFileDataOffset(), BlockAndDirInfo.BlockInfos, Header.CryptoHandler);
                 if (unpackIfPacked)
                 {
-                    //var tempFs = StreamExtensions.NewTempFileStream();
-                    //var tempFs = new MemoryStream(checked((int)BlockStream.Length));
-                    var tempFs = new MemoryStream();
+                    var tempFs = StreamExtensions.NewTempFileStream();
                     BlockStream.DumpInto(tempFs);
                     BlockStream.Dispose();
-                    DataReader = new AssetsFileReader(tempFs);
+                    DataReader = new(tempFs);
                     DataIsEncoded = false;
                 }
                 else
                 {
-                    DataReader = new AssetsFileReader(BlockStream);
+                    DataReader = new(BlockStream);
                     DataIsEncoded = true;
                 }
             }

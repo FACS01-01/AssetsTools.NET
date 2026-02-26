@@ -41,7 +41,7 @@ namespace AssetsTools.NET
             TotalFileSize = (TotalFileSize + 15) & ~15; // default AssetBundleHeader.Version (7) requires align16
             TotalFileSize += CompressedSize;
         }
-        public AssetBundleFSHeader(AssetsFileReader reader)
+        public AssetBundleFSHeader(BufferedBinaryReader reader)
         {
             reader.BigEndian = true;
 

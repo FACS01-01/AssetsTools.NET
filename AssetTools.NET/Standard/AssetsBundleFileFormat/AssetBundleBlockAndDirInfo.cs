@@ -27,7 +27,7 @@ namespace AssetsTools.NET
             BlockInfos = Array.Empty<AssetBundleBlockInfo>();
             DirectoryInfos = new(0);
         }
-        public AssetBundleBlockAndDirInfo(AssetsFileReader reader, bool hasDirInfo)
+        public AssetBundleBlockAndDirInfo(BufferedBinaryReader reader, bool hasDirInfo)
         {
             reader.BigEndian = true;
 

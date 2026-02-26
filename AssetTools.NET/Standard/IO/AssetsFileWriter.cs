@@ -4,14 +4,23 @@ using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Text;
 
 namespace AssetsTools.NET
 {
     public class AssetsFileWriter : BinaryWriter
     {
-        public bool BigEndian { get; set; } = !BitConverter.IsLittleEndian;
+        private bool _bigEndian = !BitConverter.IsLittleEndian;
+        private bool mustReverseEndianness = false;
+        public bool BigEndian
+        {
+            get => _bigEndian;
+            set
+            {
+                _bigEndian = value;
+                mustReverseEndianness = value == BitConverter.IsLittleEndian;
+            }
+        }
 
         public AssetsFileWriter(string filePath, bool leaveOpen = false)
             : base(File.Open(filePath, FileMode.Create, FileAccess.Write), Encoding.UTF8, leaveOpen)
@@ -24,17 +33,25 @@ namespace AssetsTools.NET
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void WriteNoAlloc<T>(T val) where T : unmanaged
+        private static unsafe ReadOnlySpan<byte> GetBuffer<T>(scoped ref T val) where T : unmanaged
         {
-            var bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref val, 1));
-            BaseStream.Write(bytes);
+            void* p = Unsafe.AsPointer(ref val);
+            return new ReadOnlySpan<byte>(p, sizeof(T));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private unsafe void WriteNoAlloc<T>(T val) where T : unmanaged
+        {
+            BaseStream.Write(GetBuffer(ref val));
+            //bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref val, 1));
+            //BaseStream.Write(bytes);
         }
 
         public override void Write(short val)
         {
             BaseStream.ThrowIfCantWrite();
 
-            if (BigEndian == BitConverter.IsLittleEndian) // reverse if endianness differs
+            if (mustReverseEndianness) // reverse if endianness differs
                 val = BinaryPrimitives.ReverseEndianness(val);
 
             WriteNoAlloc(val);
@@ -43,7 +60,7 @@ namespace AssetsTools.NET
         {
             BaseStream.ThrowIfCantWrite();
 
-            if (BigEndian == BitConverter.IsLittleEndian)
+            if (mustReverseEndianness)
                 val = BinaryPrimitives.ReverseEndianness(val);
 
             WriteNoAlloc(val);
@@ -52,7 +69,7 @@ namespace AssetsTools.NET
         {
             BaseStream.ThrowIfCantWrite();
 
-            if (BigEndian == BitConverter.IsLittleEndian)
+            if (mustReverseEndianness)
                 val = BinaryPrimitives.ReverseEndianness(val);
 
             WriteNoAlloc(val);
@@ -61,7 +78,7 @@ namespace AssetsTools.NET
         {
             BaseStream.ThrowIfCantWrite();
 
-            if (BigEndian == BitConverter.IsLittleEndian)
+            if (mustReverseEndianness)
                 val = BinaryPrimitives.ReverseEndianness(val);
 
             WriteNoAlloc(val);
@@ -70,7 +87,7 @@ namespace AssetsTools.NET
         {
             BaseStream.ThrowIfCantWrite();
 
-            if (BigEndian == BitConverter.IsLittleEndian)
+            if (mustReverseEndianness)
                 val = BinaryPrimitives.ReverseEndianness(val);
 
             WriteNoAlloc(val);
@@ -79,7 +96,7 @@ namespace AssetsTools.NET
         {
             BaseStream.ThrowIfCantWrite();
 
-            if (BigEndian == BitConverter.IsLittleEndian)
+            if (mustReverseEndianness)
                 val = BinaryPrimitives.ReverseEndianness(val);
 
             WriteNoAlloc(val);
@@ -87,7 +104,6 @@ namespace AssetsTools.NET
         public void WriteRawString(string val)
         {
             BaseStream.ThrowIfCantWrite();
-
             int byteCount = Encoding.UTF8.GetByteCount(val);
 
             TempBuffer.RunBufferedAction(byteCount, (val, BaseStream), static (state, span) =>
@@ -100,9 +116,9 @@ namespace AssetsTools.NET
         {
             BaseStream.ThrowIfCantWrite();
 
-            if (BigEndian == BitConverter.IsLittleEndian)
+            if (mustReverseEndianness)
                 val = BinaryPrimitives.ReverseEndianness(val);
-            var bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref val, 1));
+            var bytes = GetBuffer(ref val);
 
             bytes = BitConverter.IsLittleEndian ? bytes[..3] : bytes.Slice(1, 3);
 
@@ -112,9 +128,9 @@ namespace AssetsTools.NET
         {
             BaseStream.ThrowIfCantWrite();
 
-            if (BigEndian == BitConverter.IsLittleEndian)
+            if (mustReverseEndianness)
                 val = BinaryPrimitives.ReverseEndianness(val);
-            var bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref val, 1));
+            var bytes = GetBuffer(ref val);
 
             bytes = BitConverter.IsLittleEndian ? bytes[..3] : bytes.Slice(1, 3);
 

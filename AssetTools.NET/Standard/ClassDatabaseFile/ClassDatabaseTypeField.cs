@@ -16,7 +16,7 @@ namespace AssetsTools.NET
         /// Read the <see cref="ClassDatabaseTypeNode"/> with the provided reader.
         /// </summary>
         /// <param name="reader">The reader to use.</param>
-        public void Read(AssetsFileReader reader)
+        public void Read(BufferedBinaryReader reader)
         {
             TypeName = reader.ReadUInt16();
             FieldName = reader.ReadUInt16();

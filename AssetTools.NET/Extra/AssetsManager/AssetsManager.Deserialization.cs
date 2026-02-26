@@ -44,7 +44,7 @@ namespace AssetsTools.NET.Extra
                 if (info.Replacer.HasPreview())
                 {
                     Stream stream = info.Replacer.GetPreviewStream();
-                    AssetsFileReader reader = new AssetsFileReader(stream);
+                    BufferedBinaryReader reader = new(stream);
                     return GetTemplateBaseField(inst, reader, 0, info.TypeId, scriptIndex, readFlags);
                 }
                 else
@@ -55,7 +55,7 @@ namespace AssetsTools.NET.Extra
         }
 
         public AssetTypeTemplateField GetTemplateBaseField(
-            AssetsFileInstance inst, AssetsFileReader reader, long absByteStart,
+            AssetsFileInstance inst, BufferedBinaryReader reader, long absByteStart,
             int typeId, ushort scriptIndex, AssetReadFlags readFlags)
         {
             AssetTypeTemplateField baseField = null;
@@ -330,7 +330,7 @@ namespace AssetsTools.NET.Extra
                 Stream previewStream = info.Replacer.GetPreviewStream();
                 lock (previewStream)
                 {
-                    valueField = tempField.MakeValue(new AssetsFileReader(previewStream), 0, refMan);
+                    valueField = tempField.MakeValue(new BufferedBinaryReader(previewStream), 0, refMan);
                 }
             }
             else
@@ -338,12 +338,12 @@ namespace AssetsTools.NET.Extra
                 using MemoryStream assetDataStream = new MemoryStream((int)info.ByteSize);
                 lock (inst.LockReader)
                 {
-                    AssetsFileReader reader = inst.file.Reader;
+                    BufferedBinaryReader reader = inst.file.Reader;
                     reader.Position = info.GetAbsoluteByteOffset(inst.file);
                     StreamExtensions.CopyToExactly(reader.BaseStream, assetDataStream, info.ByteSize);
                 }
                 assetDataStream.Position = 0;
-                valueField = tempField.MakeValue(new AssetsFileReader(assetDataStream), 0, refMan);
+                valueField = tempField.MakeValue(new BufferedBinaryReader(assetDataStream), 0, refMan);
             }
             return valueField;
         }

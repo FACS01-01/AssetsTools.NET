@@ -25,9 +25,9 @@ namespace AssetsTools.NET
         public abstract void SetDefaultHeader();
 
         /// <summary>
-        /// Read crypto header from a <see cref="AssetsFileReader"/>.
+        /// Read crypto header from a <see cref="BufferedBinaryReader"/>.
         /// </summary>
-        public abstract void ReadHeaderFrom(AssetsFileReader reader);
+        public abstract void ReadHeaderFrom(BufferedBinaryReader reader);
 
         /// <summary>
         /// Copy crypto header from an existing <see cref="UnityCryptoBase"/> instance.
@@ -340,10 +340,10 @@ namespace AssetsTools.NET
         /// Creates a new instance of a <see cref="UnityCryptoBase"/>-derived object,
         /// optionally initializing it from a reader and/or setting a custom key.
         /// </summary>
-        /// <param name="reader">An optional <see cref="AssetsFileReader"/> to initialize the crypto engine's header.
+        /// <param name="reader">An optional <see cref="BufferedBinaryReader"/> to initialize the crypto engine's header.
         /// If null, <see cref="SetDefaultHeader"/> is used.</param>
         /// <param name="key">An optional key to set for the crypto engine.</param>
-        public static T Create<T>(AssetsFileReader? reader = null, string? key = null) where T : UnityCryptoBase, new()
+        public static T Create<T>(BufferedBinaryReader? reader = null, string? key = null) where T : UnityCryptoBase, new()
         {
             T newCrypto = new();
 
@@ -374,7 +374,7 @@ namespace AssetsTools.NET
             return newCrypto;
         }
 
-        private static Func<AssetsFileReader?, string?, UnityCryptoBase> DelegableCreate =
+        private static Func<BufferedBinaryReader?, string?, UnityCryptoBase> DelegableCreate =
             static (reader, key) => Create<UnityAesGcm>(reader, key);
 
         /// <summary>
@@ -405,10 +405,10 @@ namespace AssetsTools.NET
         /// Creates a new instance of <see cref="CurrentDefaultCreateType"/>,
         /// optionally initializing it from a reader and/or setting a custom key.
         /// </summary>
-        /// <param name="reader">An optional <see cref="AssetsFileReader"/> to initialize the crypto engine's header.
+        /// <param name="reader">An optional <see cref="BufferedBinaryReader"/> to initialize the crypto engine's header.
         /// If null, <see cref="SetDefaultHeader"/> is used.</param>
         /// <param name="key">An optional key to set for the crypto engine.</param>
-        public static UnityCryptoBase DefaultCreate(AssetsFileReader? reader = null, string? key = null)
+        public static UnityCryptoBase DefaultCreate(BufferedBinaryReader? reader = null, string? key = null)
             => DelegableCreate(reader, key);
     }
 }

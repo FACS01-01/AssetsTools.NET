@@ -62,7 +62,7 @@ namespace AssetsTools.NET
         /// <param name="version">The version of the file.</param>
         /// <param name="hasTypeTree">Is type tree enabled for this file?</param>
         /// <param name="isRefType">Is this type part of the ref type list?</param>
-        public void Read(AssetsFileReader reader, uint version, bool hasTypeTree, bool isRefType)
+        public void Read(BufferedBinaryReader reader, uint version, bool hasTypeTree, bool isRefType)
         {
             TypeId = reader.ReadInt32();
             if (version >= 16)

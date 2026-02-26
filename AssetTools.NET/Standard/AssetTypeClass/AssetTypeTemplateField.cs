@@ -153,7 +153,7 @@ namespace AssetsTools.NET
         /// <param name="reader">The reader to use.</param>
         /// <param name="refMan">The ref type manager to use, if reading a MonoBehaviour using a ref type.</param>
         /// <returns>The deserialized base field.</returns>
-        public AssetTypeValueField MakeValue(AssetsFileReader reader, RefTypeManager refMan = null)
+        public AssetTypeValueField MakeValue(BufferedBinaryReader reader, RefTypeManager refMan = null)
         {
             AssetTypeValueField valueField = new AssetTypeValueField
             {
@@ -170,7 +170,7 @@ namespace AssetsTools.NET
         /// <param name="position">The position to start reading from.</param>
         /// <param name="refMan">The ref type manager to use, if reading a MonoBehaviour using a ref type.</param>
         /// <returns>The deserialized value field.</returns>
-        public AssetTypeValueField MakeValue(AssetsFileReader reader, long position, RefTypeManager refMan = null)
+        public AssetTypeValueField MakeValue(BufferedBinaryReader reader, long position, RefTypeManager refMan = null)
         {
             reader.Position = position;
             return MakeValue(reader, refMan);
@@ -183,7 +183,7 @@ namespace AssetsTools.NET
         /// <param name="valueField">The empty base value field to use.</param>
         /// <param name="refMan">The ref type manager to use, if reading a MonoBehaviour using a ref type.</param>
         /// <returns>The deserialized base field.</returns>
-        public AssetTypeValueField ReadType(AssetsFileReader reader, AssetTypeValueField valueField, RefTypeManager refMan)
+        public AssetTypeValueField ReadType(BufferedBinaryReader reader, AssetTypeValueField valueField, RefTypeManager refMan)
         {
             if (valueField.TemplateField.IsArray)
             {
@@ -273,7 +273,7 @@ namespace AssetsTools.NET
 #if NETSTANDARD2_0_OR_GREATER
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        public void ReadPrimitiveType(AssetsFileReader reader, AssetTypeValueField valueField, AssetValueType type, RefTypeManager refMan)
+        public void ReadPrimitiveType(BufferedBinaryReader reader, AssetTypeValueField valueField, AssetValueType type, RefTypeManager refMan)
         {
             if (type == AssetValueType.String)
             {
@@ -346,7 +346,7 @@ namespace AssetsTools.NET
         /// <param name="valueField">The empty base value field to use.</param>
         /// <param name="refMan">The ref type manager to use, if reading a MonoBehaviour using a ref type.</param>
         /// <returns>The deserialized base field.</returns>
-        public void ReadManagedReferencesRegistryType(AssetsFileReader reader, AssetTypeValueField valueField, RefTypeManager refMan)
+        public void ReadManagedReferencesRegistryType(BufferedBinaryReader reader, AssetTypeValueField valueField, RefTypeManager refMan)
         {
             if (refMan == null)
                 throw new Exception($"{nameof(refMan)} must be non-null to deserialize objects with ref types.");
@@ -455,7 +455,7 @@ namespace AssetsTools.NET
             };
         }
 
-        private AssetTypeReferencedObject MakeReferencedObject(AssetsFileReader reader, int registryVersion, int referenceIndex, RefTypeManager refMan)
+        private AssetTypeReferencedObject MakeReferencedObject(BufferedBinaryReader reader, int registryVersion, int referenceIndex, RefTypeManager refMan)
         {
             AssetTypeReferencedObject refdObject = new AssetTypeReferencedObject();
 

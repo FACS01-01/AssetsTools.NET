@@ -15,7 +15,7 @@ namespace AssetsTools.NET
         /// </summary>
         /// <param name="reader">The reader to use.</param>
         /// <param name="classId">The class ID to assign.</param>
-        public void Read(AssetsFileReader reader, int classId)
+        public void Read(BufferedBinaryReader reader, int classId)
         {
             ClassId = classId;
 

@@ -269,17 +269,14 @@ namespace AssetsTools.NET.IO
             if (_disposed)
                 return;
 
-            if (disposing)
-            {
-                if (CloseStreamsOnDispose)
-                    foreach (var stream in _streams)
-                        stream?.Close();
+            if (CloseStreamsOnDispose)
+                foreach (var stream in _streams)
+                    stream?.Close();
+            _streams?.Clear();
+            _streams = null;
 
-                _streams.Clear();
-                _streams = null;
-                _cumulativeStreamLengths.Clear();
-                _cumulativeStreamLengths = null;
-            }
+            _cumulativeStreamLengths?.Clear();
+            _cumulativeStreamLengths = null;
 
             _disposed = true;
         }

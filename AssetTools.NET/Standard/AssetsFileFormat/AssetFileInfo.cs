@@ -66,7 +66,7 @@ namespace AssetsTools.NET
         /// </summary>
         public bool IsReplacerPreviewable => Replacer != null && Replacer.HasPreview();
 
-        public void Read(AssetsFileReader reader, uint version)
+        public void Read(BufferedBinaryReader reader, uint version)
         {
             reader.Align();
             if (version >= 14)

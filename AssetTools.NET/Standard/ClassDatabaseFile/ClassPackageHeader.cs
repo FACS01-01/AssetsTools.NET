@@ -17,7 +17,7 @@ namespace AssetsTools.NET
         /// Read the <see cref="ClassPackageHeader"/> with the provided reader.
         /// </summary>
         /// <param name="reader">The reader to use.</param>
-        public void Read(AssetsFileReader reader)
+        public void Read(BufferedBinaryReader reader)
         {
             reader.BigEndian = false;
             Magic = reader.ReadStringLength(4);

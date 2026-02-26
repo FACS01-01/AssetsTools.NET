@@ -18,7 +18,7 @@ namespace AssetsTools.NET
         /// Note only new CLDB files are supported. Original UABE cldb files are no longer supported.
         /// </summary>
         /// <param name="reader">The reader to use.</param>
-        public void Read(AssetsFileReader reader)
+        public void Read(BufferedBinaryReader reader)
         {
             Magic = reader.ReadStringLength(4);
 

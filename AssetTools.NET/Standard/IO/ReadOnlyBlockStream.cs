@@ -14,15 +14,16 @@ namespace AssetsTools.NET.IO
     public class ReadOnlyBlockStream : Stream
     {
         /// <inheritdoc cref="MemoryCacheMaxSize"/>
-        private static int _memoryCacheMaxSize = 0x3200000; // 50MB
-        private static int MaxDecompressedBlockSizeToCacheInMemory = MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE;
+        private static long _memoryCacheMaxSize = MemorySizes.TEMP_MEMORY_OPERATION_MAX_SIZE; //~80 LZ4 blocks
+        private static long MaxDecompressedBlockSizeToCacheInMemory = MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE;
         /// <summary>
-        /// Max amount of decompressed block bytes to keep loaded on cached MemoryStreams.
+        /// Max amount of decompressed block bytes to keep loaded in memory.
         /// </summary>
         /// <remarks>
-        /// When there is no enough free cache to load a new block, all cached blocks in memory will be dumped to a temporary <see cref="FileStream"/>.
+        /// When there is no enough free cache to load a new block,
+        /// all cached blocks in memory will be dumped to a temporary <see cref="FileStream"/>.
         /// </remarks>
-        public static int MemoryCacheMaxSize
+        public static long MemoryCacheMaxSize
         {
             get => _memoryCacheMaxSize;
             set
@@ -35,20 +36,45 @@ namespace AssetsTools.NET.IO
                     MemorySizes.LZ4_BLOCK_MAX_DECOMPRESSION_SIZE;
             }
         }
-        private int cacheSize = 0;
+        private long cacheSize = 0;
 
         private long[] cumulativeCompressedSizes;
         private long[] cumulativeDecompressedSizes;
         private CompressionType[] blockCompressions;
         private readonly bool hasConstantDecompressedChunkSize = true;
         private readonly long constantDecompressedChunkSize = -1;
-        public UnityCryptoBase? decryptor;
+        /// <summary>
+        /// Crypto engine used for decrypting blocks.
+        /// </summary>
+        /// <remarks>
+        /// Leave it as <see langword="null"/> if blocks aren't encrypted.
+        /// </remarks>
+        public UnityCryptoBase? Decryptor;
         private Dictionary<int, MemoryStream> cacheInMemory;
         private Dictionary<int, SegmentStream> cacheInFile;
         private FileStream tempCacheFile;
+        /// <summary>
+        /// Whether it should dispose of loaded blocks when running out of memory cache,
+        /// without backing them up into the internal temp file.
+        /// </summary>
+        public bool DiscardingMemoryCache;
+        /// <summary>
+        /// Whether this instance has a temporary file for backing up memory cache.
+        /// </summary>
+        public bool UsingBackingTempFile
+        {
+            get => _usingBackingTempFile;
+            set
+            {
+                _usingBackingTempFile = value;
+                if (_usingBackingTempFile && tempCacheFile == null)
+                    tempCacheFile = StreamExtensions.NewTempFileStream(MemorySizes.OPTIMAL_BUFFER_SIZE);
+            }
+        }
+        private bool _usingBackingTempFile;
 
         public ReadOnlyBlockStream(Stream baseStream, long baseOffset, AssetBundleBlockInfo[] blockInfos,
-            UnityCryptoBase? decryptor = null)
+            UnityCryptoBase? decryptor = null, bool discardMemoryCache = false, bool useBackingTempFile = true)
         {
             baseStream.ThrowIfCantSeek();
 
@@ -62,10 +88,13 @@ namespace AssetsTools.NET.IO
 
             _baseStream = baseStream;
             BaseOffset = baseOffset;
-            this.decryptor = decryptor;
-            cacheInMemory = new();
+            Decryptor = decryptor;
+            cacheInMemory = new(100);
             cacheInFile = new();
-            tempCacheFile = StreamExtensions.NewTempFileStream(MemorySizes.OPTIMAL_BUFFER_SIZE);
+            _usingBackingTempFile = useBackingTempFile;
+            if (useBackingTempFile)
+                tempCacheFile = StreamExtensions.NewTempFileStream(MemorySizes.OPTIMAL_BUFFER_SIZE);
+            DiscardingMemoryCache = discardMemoryCache;
 
             BlockCount = blockInfos.Length;
             cumulativeCompressedSizes = GC.AllocateUninitializedArray<long>(BlockCount);
@@ -249,7 +278,7 @@ namespace AssetsTools.NET.IO
             if (currentBlockIdx == BlockCount) // no data left
                 return 0;
 
-            var currentStream = LoadBlock(currentBlockIdx);
+            var currentStream = GetBlock(currentBlockIdx);
             currentStream.Position = _position - CumulativeLength(currentBlockIdx);
 
             int totalRead = 0;
@@ -269,7 +298,7 @@ namespace AssetsTools.NET.IO
                         return totalRead;
                     if (count > totalRead)
                     {
-                        currentStream = LoadBlock(currentBlockIdx);
+                        currentStream = GetBlock(currentBlockIdx);
                         currentStream.Position = 0;
                     }
                 }
@@ -289,7 +318,7 @@ namespace AssetsTools.NET.IO
             if (currentBlockIdx == BlockCount) // no data left
                 return 0;
 
-            var currentStream = LoadBlock(currentBlockIdx);
+            var currentStream = GetBlock(currentBlockIdx);
             currentStream.Position = _position - CumulativeLength(currentBlockIdx);
 
             int totalRead = 0;
@@ -311,7 +340,7 @@ namespace AssetsTools.NET.IO
                         return totalRead;
                     if (count > totalRead)
                     {
-                        currentStream = LoadBlock(currentBlockIdx);
+                        currentStream = GetBlock(currentBlockIdx);
                         currentStream.Position = 0;
                     }
                 }
@@ -328,7 +357,7 @@ namespace AssetsTools.NET.IO
             if (currentBlockIdx == BlockCount) // no data left
                 return -1;
 
-            var currentStream = LoadBlock(currentBlockIdx);
+            var currentStream = GetBlock(currentBlockIdx);
             currentStream.Position = _position - CumulativeLength(currentBlockIdx);
 
             var b = currentStream.ReadByte();
@@ -354,7 +383,7 @@ namespace AssetsTools.NET.IO
             long currentStreamPos = _position - CumulativeLength(currentBlockIdx);
             for (; currentBlockIdx < BlockCount; currentBlockIdx++)
             {
-                var currentStream = LoadBlock(currentBlockIdx);
+                var currentStream = GetBlock(currentBlockIdx);
 
                 var nextAcumLength = CumulativeLength(currentBlockIdx + 1);
                 if (_position < nextAcumLength)
@@ -375,7 +404,7 @@ namespace AssetsTools.NET.IO
                 return;
 
             _baseStream = null; // don't Dispose the base stream
-            decryptor = null; // don't Dispose the decryptor
+            Decryptor = null; // don't Dispose the decryptor
 
             if (cacheInMemory != null)
             {
@@ -417,42 +446,52 @@ namespace AssetsTools.NET.IO
             if (hasConstantDecompressedChunkSize)
             {
                 var lastBlockIdx = BlockCount - 1;
-                return blockIdx != lastBlockIdx ? constantDecompressedChunkSize :
-                    _length - constantDecompressedChunkSize * lastBlockIdx;
+                if (blockIdx != lastBlockIdx)
+                    return constantDecompressedChunkSize;
+                return _length - constantDecompressedChunkSize * lastBlockIdx;
             }
-            else
-            {
-                return blockIdx == 0 ? cumulativeDecompressedSizes[0] :
-                    cumulativeDecompressedSizes[blockIdx] - cumulativeDecompressedSizes[blockIdx - 1];
-            }
+            if (blockIdx == 0)
+                return cumulativeDecompressedSizes[0];
+            return cumulativeDecompressedSizes[blockIdx] - cumulativeDecompressedSizes[blockIdx - 1];
         }
 
-        private Stream LoadBlock(int blockIdx)
+        private Stream GetBlock(int blockIdx)
         {
             if (cacheInMemory.TryGetValue(blockIdx, out var ms))
                 return ms;
             if (cacheInFile.TryGetValue(blockIdx, out var ss))
                 return ss;
 
+            if (blockCompressions[blockIdx] == CompressionType.None && Decryptor == null)
+            {
+                var blockOffset = blockIdx == 0 ? 0 : cumulativeCompressedSizes[blockIdx - 1];
+                var compressedSize = cumulativeCompressedSizes[blockIdx] - blockOffset;
+                var newss = new SegmentStream(_baseStream, BaseOffset + blockOffset, compressedSize);
+                cacheInFile[blockIdx] = newss;
+                return newss;
+            }
+
             var decompressedSize = GetBlockDecompressedSize(blockIdx);
 
-            BackingStreamType backingStreamType = decompressedSize <= MaxDecompressedBlockSizeToCacheInMemory ?
-                    BackingStreamType.MemoryStream : BackingStreamType.FileStream;
-
-            if (backingStreamType == BackingStreamType.MemoryStream)
+            if (decompressedSize <= MaxDecompressedBlockSizeToCacheInMemory || !_usingBackingTempFile)
                 return CacheNewBlockInMemory(blockIdx, (int)decompressedSize);
 
             var tempCacheFileOffset = tempCacheFile.Seek(0, SeekOrigin.End);
             ProcessBlockInto(blockIdx, decompressedSize, tempCacheFile);
-            var newss = new SegmentStream(tempCacheFile, tempCacheFileOffset, decompressedSize);
-            cacheInFile[blockIdx] = newss;
-            return newss;
+            var newTempss = new SegmentStream(tempCacheFile, tempCacheFileOffset, decompressedSize);
+            cacheInFile[blockIdx] = newTempss;
+            return newTempss;
         }
 
         private MemoryStream CacheNewBlockInMemory(int blockIdx, int decompressedSize)
         {
             if (_memoryCacheMaxSize - cacheSize < decompressedSize)
-                DumpMemoryCacheToTempFile();
+            {
+                if (DiscardingMemoryCache)
+                    DiscardMemoryCache();
+                else if (_usingBackingTempFile)
+                    DumpMemoryCacheToTempFile();
+            }
 
             var newBuffer = GC.AllocateUninitializedArray<byte>(decompressedSize);
             var newms = newBuffer.NewExposedMemoryStream();
@@ -482,6 +521,14 @@ namespace AssetsTools.NET.IO
             cacheSize = 0;
         }
 
+        private void DiscardMemoryCache()
+        {
+            foreach (var ms in cacheInMemory.Values)
+                ms.Dispose();
+            cacheInMemory.Clear();
+            cacheSize = 0;
+        }
+
         private void ProcessBlockInto(int blockIdx, long decompressedSize, Stream destination)
         {
             var blockOffset = blockIdx == 0 ? 0 : cumulativeCompressedSizes[blockIdx - 1];
@@ -489,9 +536,9 @@ namespace AssetsTools.NET.IO
 
             _baseStream.Position = BaseOffset + blockOffset;
 
-            if (decryptor != null)
+            if (Decryptor != null)
             {
-                decryptor.DecryptAndDecompress(_baseStream, compressedSize, decompressedSize,
+                Decryptor.DecryptAndDecompress(_baseStream, compressedSize, decompressedSize,
                     blockCompressions[blockIdx], destination, blockIdx);
             }
             else
@@ -505,13 +552,15 @@ namespace AssetsTools.NET.IO
         {
             if (upToBlockCount <= 0)
                 return 0;
-            return hasConstantDecompressedChunkSize ?
-                constantDecompressedChunkSize * upToBlockCount :
-                (currentBlockIdx == 0 ? 0 : cumulativeDecompressedSizes[upToBlockCount - 1]);
+            if (upToBlockCount == BlockCount)
+                return _length;
+            if (hasConstantDecompressedChunkSize)
+                return constantDecompressedChunkSize * upToBlockCount;
+            return cumulativeDecompressedSizes[upToBlockCount - 1];
         }
 
         /// <summary>
-        /// Copies all decompressed block data into the provided stream, skipping cache.
+        /// Copies all decompressed block data into the provided stream, not caching new blocks.
         /// </summary>
         public void DumpInto(Stream destination)
         {

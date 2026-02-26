@@ -1,5 +1,6 @@
 ﻿using AssetsTools.NET.Standard.Codecs;
 using System;
+using System.IO;
 using System.Text.RegularExpressions;
 
 namespace AssetsTools.NET
@@ -9,8 +10,6 @@ namespace AssetsTools.NET
         public const string HeaderSignature = "UnityFS";
         public const string DefaultGeneration = "5.x.x";
         public const string DefaultEngine = "0.0.0";
-        private static readonly Regex EngineVersionRegex =
-            new(@"^(?<major>\d+)(?:\.(?<minor>\d+))?(?:\.(?<patch>\d+))?(?<extra>.*)", RegexOptions.Compiled);
 
         /// <summary>
         /// Magic appearing at the beginning of all bundles. Possible options are:
@@ -28,7 +27,23 @@ namespace AssetsTools.NET
         /// <summary>
         /// Engine version. This is the specific version string being used. For example, "2019.4.2f1"
         /// </summary>
-        public string EngineVersion { get; set; }
+        public string EngineVersion
+        {
+            get => _engineVersion;
+            set
+            {
+                if (!TryParseVersion(value))
+                    throw new ArgumentException("Invalid engine version format.");
+                _engineVersion = value;
+                _useOldEncryptionMask = UseOldEncryptionMask();
+            }
+        }
+        private string _engineVersion;
+
+        private int EngineMajor;
+        private int EngineMinor;
+        private int EnginePatch;
+        private bool _useOldEncryptionMask = true;
 
         /// <summary>
         /// Header for bundles with a UnityFS Signature.
@@ -37,7 +52,7 @@ namespace AssetsTools.NET
 
         public UnityCryptoBase? CryptoHandler { get; set; }
 
-        public static bool CanRead(AssetsFileReader reader)
+        public static bool CanRead(BufferedBinaryReader reader)
         {
             var pos = reader.Position;
             var signature = reader.ReadNullTerminated();
@@ -51,11 +66,13 @@ namespace AssetsTools.NET
             Signature = HeaderSignature;
             Version = 7;
             GenerationVersion = DefaultGeneration;
-            EngineVersion = DefaultEngine;
+            _engineVersion = DefaultEngine;
+            EngineMajor = EngineMinor = EnginePatch = 0;
             FileStreamHeader = new();
             CryptoHandler = null;
         }
-        public AssetBundleHeader(AssetsFileReader reader)
+
+        public AssetBundleHeader(BufferedBinaryReader reader)
         {
             reader.BigEndian = true;
 
@@ -129,39 +146,94 @@ namespace AssetsTools.NET
         public CompressionType GetCompressionType() =>
             (CompressionType)(FileStreamHeader.Flags & AssetBundleFSHeaderFlags.CompressionMask);
 
-        private (uint Major, uint Minor, uint Patch) GetEngineVersionNumbers()
+        public AssetBundleFSHeaderFlags GetEncryptionFlag()
         {
-            Match match = EngineVersionRegex.Match(EngineVersion);
-            if (!match.Success)
-                throw new FormatException($"Engine version string '{EngineVersion}' is not in the correct format.");
-            uint major = uint.Parse(match.Groups["major"].Value);
-            uint minor = match.Groups["minor"].Success ? uint.Parse(match.Groups["minor"].Value) : 0;
-            uint patch = match.Groups["patch"].Success ? uint.Parse(match.Groups["patch"].Value) : 0;
-            return (major, minor, patch);
+            return _useOldEncryptionMask ?
+                AssetBundleFSHeaderFlags.BlockInfoNeedPaddingAtStart :
+                AssetBundleFSHeaderFlags.UnityCNEncryption; // todo. when to use UnityCNEncryptionNew
+        }
+
+        public AssetBundleFSHeaderFlags GetEncryptionMask()
+        {
+            return _useOldEncryptionMask ?
+                AssetBundleFSHeaderFlags.BlockInfoNeedPaddingAtStart :
+                AssetBundleFSHeaderFlags.UnityCNEncryption | AssetBundleFSHeaderFlags.UnityCNEncryptionNew;
+        }
+
+        public bool IsEncrypted() => (FileStreamHeader.Flags & GetEncryptionMask()) != AssetBundleFSHeaderFlags.None;
+
+        private bool ShouldAlignAfterHeader()
+        {
+            if (Version >= 7)
+                return true;
+            if (EngineMajor == 2019 && EngineMinor == 4 && EnginePatch >= 30)
+                return true;
+
+            return false;
+        }
+
+        private bool TryParseVersion(string newEngineVersion)
+        {
+            if (string.IsNullOrEmpty(newEngineVersion))
+            {
+                EngineMajor = EngineMinor = EnginePatch = -1;
+                return true;
+            }
+
+            ReadOnlySpan<char> s = newEngineVersion;
+            var verLen = s.Length;
+            int i = 0;
+
+            int start = i;
+            while (i < verLen && char.IsDigit(s[i]))
+                i++;
+            if (i == start || i >= verLen || s[i] != '.' ||
+                !int.TryParse(s[start..i], out EngineMajor))
+                goto parseFail;
+            i++;
+
+            start = i;
+            while (i < verLen && char.IsDigit(s[i]))
+                i++;
+            if (i == start || i >= s.Length || s[i] != '.' ||
+                !int.TryParse(s[start..i], out EngineMinor))
+                goto parseFail;
+            i++;
+
+            start = i;
+            while (i < verLen && char.IsDigit(s[i]))
+                i++;
+            if (i == start || !int.TryParse(s[start..i], out EnginePatch))
+                goto parseFail;
+
+            return true;
+
+        parseFail:
+            EngineMajor = EngineMinor = EnginePatch = -1;
+            return false;
         }
 
         private bool UseOldEncryptionMask()
         {
-            (var maj, var min, var pat) = GetEngineVersionNumbers();
-            if (maj < 2020)
+            if (EngineMajor < 2020)
                 return true; //2020 and earlier
 
-            if (maj > 2022 || min != 3)
+            if (EngineMajor > 2022 || EngineMinor != 3)
                 return false;
 
-            if (maj == 2020)
+            if (EngineMajor == 2020)
             {
-                if (pat <= 34)
+                if (EnginePatch <= 34)
                     return true; //2020.3.34 and earlier
             }
-            else if (maj == 2021)
+            else if (EngineMajor == 2021)
             {
-                if (pat <= 2)
+                if (EnginePatch <= 2)
                     return true; //2021.3.2 and earlier
             }
-            else if (maj == 2022)
+            else if (EngineMajor == 2022)
             {
-                if (pat <= 1)
+                if (EnginePatch <= 1)
                     return true; //2022.3.1 and earlier
             }
 
@@ -175,31 +247,18 @@ namespace AssetsTools.NET
             */
         }
 
-        public AssetBundleFSHeaderFlags GetEncryptionFlag()
+        public void SetEngineVersion(int major, int minor, int patch, string? extra = null)
         {
-            return UseOldEncryptionMask() ?
-                AssetBundleFSHeaderFlags.BlockInfoNeedPaddingAtStart :
-                AssetBundleFSHeaderFlags.UnityCNEncryption; // todo. when to use UnityCNEncryptionNew
-        }
-
-        public AssetBundleFSHeaderFlags GetEncryptionMask()
-        {
-            return UseOldEncryptionMask() ?
-                AssetBundleFSHeaderFlags.BlockInfoNeedPaddingAtStart :
-                AssetBundleFSHeaderFlags.UnityCNEncryption | AssetBundleFSHeaderFlags.UnityCNEncryptionNew;
-        }
-
-        public bool IsEncrypted() => (FileStreamHeader.Flags & GetEncryptionMask()) != AssetBundleFSHeaderFlags.None;
-
-        private bool ShouldAlignAfterHeader()
-        {
-            if (Version >= 7)
-                return true;
-            var verNums = GetEngineVersionNumbers();
-            if (verNums.Major == 2019 && verNums.Minor == 4 && verNums.Patch >= 30)
-                return true;
-
-            return false;
+            if (major < 0 || minor < 0 || patch < 0 ||
+                (!string.IsNullOrEmpty(extra) && char.IsDigit(extra[0])))
+                throw new ArgumentException("Invalid engine version format.");
+            if (string.IsNullOrEmpty(extra))
+                extra = string.Empty;
+            EngineMajor = major;
+            EngineMinor = minor;
+            EnginePatch = patch;
+            _engineVersion = major + '.' + minor + '.' + patch + extra;
+            _useOldEncryptionMask = UseOldEncryptionMask();
         }
     }
 }

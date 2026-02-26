@@ -200,12 +200,9 @@ namespace AssetsTools.NET
             if (_disposed)
                 return;
 
-            if (disposing)
-            {
-                if (CloseBaseOnDispose)
-                    _baseStream.Close();
-                _baseStream = null;
-            }
+            if (CloseBaseOnDispose)
+                _baseStream.Close();
+            _baseStream = null;
 
             _disposed = true;
         }

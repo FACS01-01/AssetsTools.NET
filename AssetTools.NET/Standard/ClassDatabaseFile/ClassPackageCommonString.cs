@@ -14,7 +14,7 @@ namespace AssetsTools.NET
         /// Read the <see cref="ClassPackageCommonString"/> with the provided reader.
         /// </summary>
         /// <param name="reader">The reader to use.</param>
-        public void Read(AssetsFileReader reader)
+        public void Read(BufferedBinaryReader reader)
         {
             int versionCount = reader.ReadInt32();
             VersionInformation = new List<KeyValuePair<UnityVersion, byte>>(versionCount);

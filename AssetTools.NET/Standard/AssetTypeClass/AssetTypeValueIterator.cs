@@ -6,7 +6,7 @@ namespace AssetsTools.NET
     public class AssetTypeValueIterator
     {
         private AssetTypeTemplateField baseTempField;
-        private AssetsFileReader reader;
+        private BufferedBinaryReader reader;
         private RefTypeManager refMan;
         private readonly Stack<IEnumerator<AssetTypeTemplateField>> tempFieldStack;
 
@@ -113,7 +113,7 @@ namespace AssetsTools.NET
         /// <param name="templateField">The template base field to use.</param>
         /// <param name="reader">The reader to use, set the correct position.</param>
         /// <param name="refMan">The ref type manager to use, if reading a MonoBehaviour using a ref type.</param>
-        public AssetTypeValueIterator(AssetTypeTemplateField templateField, AssetsFileReader reader, RefTypeManager refMan = null)
+        public AssetTypeValueIterator(AssetTypeTemplateField templateField, BufferedBinaryReader reader, RefTypeManager refMan = null)
         {
             baseTempField = templateField;
             this.reader = reader;
@@ -135,12 +135,12 @@ namespace AssetsTools.NET
         /// <param name="reader">The reader to use.</param>
         /// <param name="position">The position to start reading from.</param>
         /// <param name="refMan">The ref type manager to use, if reading a MonoBehaviour using a ref type.</param>
-        public AssetTypeValueIterator(AssetTypeTemplateField templateField, AssetsFileReader reader, long position, RefTypeManager refMan = null)
+        public AssetTypeValueIterator(AssetTypeTemplateField templateField, BufferedBinaryReader reader, long position, RefTypeManager refMan = null)
             : this(templateField, ReaderWithSetPos(reader, position), refMan)
         {
         }
 
-        private static AssetsFileReader ReaderWithSetPos(AssetsFileReader reader, long position)
+        private static BufferedBinaryReader ReaderWithSetPos(BufferedBinaryReader reader, long position)
         {
             reader.Position = position;
             return reader;
@@ -155,7 +155,7 @@ namespace AssetsTools.NET
             valueFieldCache = null;
         }
 
-        public void Reset(AssetTypeTemplateField templateField, AssetsFileReader reader, RefTypeManager refMan = null)
+        public void Reset(AssetTypeTemplateField templateField, BufferedBinaryReader reader, RefTypeManager refMan = null)
         {
             baseTempField = templateField;
             this.reader = reader;

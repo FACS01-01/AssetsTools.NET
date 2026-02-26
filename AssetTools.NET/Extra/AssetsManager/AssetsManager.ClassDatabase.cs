@@ -7,7 +7,7 @@ namespace AssetsTools.NET.Extra
         public ClassDatabaseFile LoadClassDatabase(Stream stream)
         {
             ClassDatabase = new ClassDatabaseFile();
-            ClassDatabase.Read(new AssetsFileReader(stream));
+            ClassDatabase.Read(new BufferedBinaryReader(stream));
             return ClassDatabase;
         }
 
@@ -29,7 +29,7 @@ namespace AssetsTools.NET.Extra
         public ClassPackageFile LoadClassPackage(Stream stream)
         {
             ClassPackage = new ClassPackageFile();
-            ClassPackage.Read(new AssetsFileReader(stream));
+            ClassPackage.Read(new BufferedBinaryReader(stream));
             return ClassPackage;
         }
 

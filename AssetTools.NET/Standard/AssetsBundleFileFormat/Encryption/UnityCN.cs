@@ -59,7 +59,7 @@ namespace AssetsTools.NET
             DummyByte2 = 0;
         }
 
-        public override void ReadHeaderFrom(AssetsFileReader reader)
+        public override void ReadHeaderFrom(BufferedBinaryReader reader)
         {
             reader.BigEndian = true;
 

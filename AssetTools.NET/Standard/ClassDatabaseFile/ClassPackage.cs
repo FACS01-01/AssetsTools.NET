@@ -16,22 +16,22 @@ namespace AssetsTools.NET
         /// Read the <see cref="ClassPackageFile"/> with the provided reader.
         /// </summary>
         /// <param name="reader">The reader to use.</param>
-        public void Read(AssetsFileReader reader)
+        public void Read(BufferedBinaryReader reader)
         {
             Header = new ClassPackageHeader();
             Header.Read(reader);
 
-            AssetsFileReader newReader;
+            BufferedBinaryReader newReader;
             if (Header.CompressionType == ClassFileCompressionType.Lz4)
             {
                 Stream ms = CodecUtilities.DecompressLZ4ToNew(reader.BaseStream, (int)Header.CompressedSize, (int)Header.DecompressedSize, BackingStreamType.MemoryStream);
-                newReader = new AssetsFileReader(ms);
+                newReader = new BufferedBinaryReader(ms);
                 newReader.Position = 0;
             }
             else if (Header.CompressionType == ClassFileCompressionType.Lzma)
             {
                 Stream ms = CodecUtilities.DecompressLZMAToNew(reader.BaseStream, Header.CompressedSize, Header.DecompressedSize, BackingStreamType.MemoryStream);
-                newReader = new AssetsFileReader(ms);
+                newReader = new BufferedBinaryReader(ms);
                 newReader.Position = 0;
             }
             else
@@ -47,7 +47,7 @@ namespace AssetsTools.NET
         /// Read the <see cref="ClassPackageFile"/> at the given path.
         /// </summary>
         /// <param name="path">The path to read from.</param>
-        public void Read(string path) => Read(new AssetsFileReader(File.OpenRead(path)));
+        public void Read(string path) => Read(new BufferedBinaryReader(File.OpenRead(path)));
 
         /// <summary>
         /// Write the <see cref="ClassPackageFile"/> with the provided writer and compression type.

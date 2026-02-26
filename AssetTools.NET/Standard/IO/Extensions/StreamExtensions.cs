@@ -199,7 +199,12 @@ namespace AssetsTools.NET.Standard.IO.Extensions
             throw new ArgumentException("The ArraySegment<byte> didn't contain a byte[] anymore.", nameof(buffer));
         }
 
-        public static FileStream NewTempFileStream(long bufferSize = MemorySizes.DEFAULT_FILESTREAM_BUFFER_SIZE, bool sequentialScan = true)
+        /// <summary>
+        /// Creates a new <see cref="FileStream"/> backed on a Temp file, that will be deleted on close.
+        /// </summary>
+        /// <param name="bufferSize">Size for the FileStream buffer.</param>
+        /// <param name="sequentialScan"><inheritdoc cref="FileOptions.SequentialScan" path="/summary"/></param>
+        public static FileStream NewTempFileStream(long bufferSize = MemorySizes.DEFAULT_FILESTREAM_BUFFER_SIZE, bool sequentialScan = false)
         {
             if (bufferSize > MemorySizes.OPTIMAL_BUFFER_SIZE)
                 bufferSize = MemorySizes.OPTIMAL_BUFFER_SIZE;

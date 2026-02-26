@@ -28,7 +28,7 @@ namespace AssetsTools.NET
         /// reading <see cref="AssetsFileMetadata"/>.
         /// </summary>
         /// <param name="reader">The reader to use.</param>
-        public void ReadMetadata(AssetsFileReader reader)
+        public void ReadMetadata(BufferedBinaryReader reader)
         {
             ClassName = reader.ReadNullTerminated();
             Namespace = reader.ReadNullTerminated();
@@ -40,7 +40,7 @@ namespace AssetsTools.NET
         /// reading <see cref="AssetTypeReferencedObject"/>.
         /// </summary>
         /// <param name="reader">The reader to use.</param>
-        public void ReadAsset(AssetsFileReader reader)
+        public void ReadAsset(BufferedBinaryReader reader)
         {
             ClassName = reader.ReadCountStringInt32(); reader.Align();
             Namespace = reader.ReadCountStringInt32(); reader.Align();
