@@ -331,3 +331,4 @@ out/
 build/
 !NativeLibs/**/windows/bin
 !NativeLibs/**/linux/bin
+/HelloWorld/Program.cs
